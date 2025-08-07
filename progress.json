@@ -1,0 +1,20 @@
+{
+  "phases": {
+    "Phase 1": {
+      "Step 1A": "implemented",
+      "Step 1B": "implemented"
+    },
+    "Phase 2": {
+      "Step 2B": "implemented"
+    },
+    "Phase 3": {
+      "Train Control": "implemented",
+      "Train Experimental": "implemented",
+      "Predictions": "implemented",
+      "Compare": "implemented"
+    },
+    "Phase 4": {},
+    "Phase 5": {}
+  },
+  "notes": "Update statuses as steps are validated (e.g., tested, improved)."
+}

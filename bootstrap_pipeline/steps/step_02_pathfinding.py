@@ -2,11 +2,9 @@
 
 import json
 import logging
-import pandas as pd
 import pyarrow.parquet as pq
 from bootstrap_pipeline.bootstrap.feature_discovery import CreativePathfindingDiscovery
 from bootstrap_pipeline.utils.utils import reduce_mem_usage
-from ..utils.utils import reduce_mem_usage
 
 def run(input_file: str, target_col: str, output_relationships_file: str, yolo_mode: bool,
     feature_limit: int | None = None, row_limit: int | None = None, **kwargs):

@@ -61,14 +61,20 @@ python apply_bootstrap_to_validation.py \
 
 ## **Phase 3: Train and Test Models** *(The "Moment of Truth" Phase)*
 
+Status notes:
+
+- Control model training (chunked) ran successfully and saved model at pipeline_runs/run_20250807_224341_exp_full_small/models/control_lgbm.pkl.
+- Next: generate control predictions on validation and then compare vs experimental once experimental artifacts are produced.
+
 ### **Step 3A: Train Control vs Experimental Models**
+
 ```bash
 # Control model (your existing approach)
-python train_control_model.py \
-  --train-data train.parquet \
-  --validation-data validation.parquet \
+python train_control_model_chunked.py \
+  --train-data v5.0/train.parquet \
+  --validation-data v5.0/validation.parquet \
   --target-col target \
-  --output-model control_model.lgb
+  --output-model pipeline_runs/run_20250807_224341_exp_full_small/models/control_lgbm.pkl
 
 # Experimental model (bootstrap enhanced)
 python train_experimental_model.py \
@@ -79,12 +85,13 @@ python train_experimental_model.py \
 ```
 
 ### **Step 3B: Generate Predictions**
+
 ```bash
 # Both models predict validation set
 python generate_predictions.py \
-  --model control_model.lgb \
-  --data validation.parquet \
-  --output control_predictions.csv
+  --model pipeline_runs/run_20250807_224341_exp_full_small/models/control_lgbm.pkl \
+  --data v5.0/validation.parquet \
+  --output pipeline_runs/run_20250807_224341_exp_full_small/control_predictions.csv
 
 python generate_predictions.py \
   --model experimental_model.lgb \
@@ -93,6 +100,7 @@ python generate_predictions.py \
 ```
 
 ### **Step 3C: The Ultimate Test**
+
 ```bash
 # Compare performance
 python compare_model_performance.py \
@@ -111,6 +119,7 @@ python compare_model_performance.py \
 ### **Only proceed if Phase 3 shows improvement. Don't scale failure.**
 
 ### **Step 4A: Full Historical Processing**
+
 ```bash
 # Remove quick-tune and conservative limitations
 python full_bootstrap_pipeline.py \
@@ -122,6 +131,7 @@ python full_bootstrap_pipeline.py \
 ```
 
 ### **Step 4B: Tournament Integration**
+
 ```bash
 # Create tournament predictions
 python tournament_pipeline.py \
@@ -137,12 +147,14 @@ python tournament_pipeline.py \
 ## **Phase 5: Production Deployment** *(The "Now We're Playing With Real Money" Phase)*
 
 ### **Step 5A: Automated Pipeline**
+
 ```bash
 # Weekly tournament routine
 ./weekly_tournament_pipeline.sh
 ```
 
 ### **Step 5B: Performance Monitoring**
+
 ```bash
 # Track live performance vs backtest
 python monitor_live_performance.py \
@@ -193,6 +205,6 @@ Reward: The knowledge that you've built something genuinely novel that actually 
 
 *P.S. - Document everything. Future you will thank present you when you're trying to remember why era 0538 was special.*
 
-```
+```bash
 .venv/bin/python run_pipeline.py run --input-data v5.0/train.parquet --features-json v5.0/features.json --run-name cache_test_again --smoke-mode --skip-walk-forward --max-new-features 2 --pretty
 ```

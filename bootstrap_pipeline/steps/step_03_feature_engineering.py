@@ -8,7 +8,7 @@ import pyarrow as pa
 import json
 from ..utils.utils import reduce_mem_usage
 
-def run(input_file: str, relationships_file: str, output_file: str, max_features: int, row_limit: int | None = None, **kwargs):
+def run(input_file: str, relationships_file: str, output_file: str, max_features: int, row_limit: int | None = None, yolo_mode: bool = False, **kwargs):
     logging.info("Running Feature Engineering...")
 
     with open(relationships_file, 'r') as f:
@@ -40,6 +40,19 @@ def run(input_file: str, relationships_file: str, output_file: str, max_features
                 batch_df[interaction_name] = (batch_df[feat1] * batch_df[feat2] * strength).astype('float32')
                 if interaction_name not in new_feature_names:
                     new_feature_names.append(interaction_name)
+
+                # YOLO mode: add ratio and diff features for early relationships to prevent explosion
+                if yolo_mode:
+                    if i < 30:  # cap ratio features to first 30 relationships
+                        ratio_name = f"path_{i:02d}_ratio_{feat1[-4:]}_{feat2[-4:]}"
+                        batch_df[ratio_name] = (batch_df[feat1] / (batch_df[feat2].abs() + 1e-6) * strength).astype('float32')
+                        if ratio_name not in new_feature_names:
+                            new_feature_names.append(ratio_name)
+                    if i < 15:  # cap diff features to first 15 relationships
+                        diff_name = f"path_{i:02d}_diff_{feat1[-4:]}_{feat2[-4:]}"
+                        batch_df[diff_name] = ((batch_df[feat1] - batch_df[feat2]) * strength).astype('float32')
+                        if diff_name not in new_feature_names:
+                            new_feature_names.append(diff_name)
 
         table = pa.Table.from_pandas(batch_df)
         if writer is None:

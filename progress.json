@@ -8,13 +8,18 @@
       "Step 2B": "implemented"
     },
     "Phase 3": {
-      "Train Control": "implemented",
+      "Train Control": "tested",
       "Train Experimental": "implemented",
-      "Predictions": "implemented",
-      "Compare": "implemented"
+      "Predictions": "control-predictions-generated",
+      "Compare": "ready"
     },
     "Phase 4": {},
     "Phase 5": {}
+  },
+  "artifacts": {
+    "control_model": "pipeline_runs/run_20250807_224341_exp_full_small/models/control_lgbm.pkl",
+    "control_predictions": "pipeline_runs/run_20250807_224341_exp_full_small/control_predictions.csv",
+    "validation_enhanced": "pipeline_runs/run_20250807_224341_exp_full_small/validation_enhanced.parquet"
   },
   "notes": "Update statuses as steps are validated (e.g., tested, improved)."
 }

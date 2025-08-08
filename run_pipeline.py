@@ -234,6 +234,7 @@ def main():
                         relationships_file=stage2_output,
                         output_file=stage3_output,
                         max_features=args.max_new_features,
+                        yolo_mode=args.yolo_mode,
                         row_limit=_resolve_smoke_value(args, 'smoke_row_limit', default_if_smoke=100_000)
                     )
                     duration = time.time() - start_time

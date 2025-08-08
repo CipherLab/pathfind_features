@@ -16,7 +16,8 @@ def run(input_file: str, target_col: str, output_relationships_file: str, yolo_m
     if feature_limit is not None:
         feature_columns = feature_columns[:feature_limit]
 
-    pathfinding_discovery = CreativePathfindingDiscovery(feature_columns, max_features=80 if yolo_mode else 40)
+    # Allow more features in yolo mode to broaden the search space
+    pathfinding_discovery = CreativePathfindingDiscovery(feature_columns, max_features=120 if yolo_mode else 60)
 
     processed_rows = 0
     for batch in pf.iter_batches(batch_size=25000, columns=all_columns):
@@ -37,7 +38,11 @@ def run(input_file: str, target_col: str, output_relationships_file: str, yolo_m
             feature_values = row[feature_columns].values.astype(float)
             target_value = float(row[target_col])
 
-            paths = pathfinding_discovery.find_creative_paths(feature_values, target_value)
+            # In yolo mode, search deeper and try more paths per row
+            if yolo_mode:
+                paths = pathfinding_discovery.find_creative_paths(feature_values, target_value, max_path_length=6, n_paths=16)
+            else:
+                paths = pathfinding_discovery.find_creative_paths(feature_values, target_value)
             pathfinding_discovery.update_relationships_from_paths(paths, feature_values, target_value)
         processed_rows += len(batch_df)
         del batch_df
@@ -47,7 +52,7 @@ def run(input_file: str, target_col: str, output_relationships_file: str, yolo_m
     pathfinding_discovery.decay_unused_relationships()
 
     relationships = pathfinding_discovery.get_discovered_relationships(
-        min_strength=0.25, top_k=50 if yolo_mode else 20
+        min_strength=0.2 if yolo_mode else 0.25, top_k=80 if yolo_mode else 20
     )
 
     with open(output_relationships_file, 'w') as f:

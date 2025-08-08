@@ -25,7 +25,7 @@ def run_null_hypothesis_test(discovery, data_sample, target_col, feature_cols):
         paths = test_disc.find_creative_paths(fv, tv)
         test_disc.update_relationships_from_paths(paths, fv, tv)
 
-    shuffled_relationships = test_disc.get_discovered_relationships(min_strength=0.15)
+    shuffled_relationships = test_disc.get_discovered_relationships(min_strength=MIN_STRENGTH_THRESHOLD)
     if len(shuffled_relationships) > NULL_HYPOTHESIS_RELATIONSHIP_THRESHOLD:
         logging.warning("🚨 OVERFITTING ALERT: meaningful relationships found on shuffled targets")
         return False

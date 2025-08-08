@@ -54,7 +54,11 @@ def main():
     validation_df = pd.read_parquet(args.validation_data)
 
     if 'train_df' not in locals():
-        raise RuntimeError("train_df must be defined before feature extraction")
+        raise RuntimeError(
+            f"Training data frame 'train_df' is not defined for model type '{args.model_type}'. "
+            f"Expected training data path: {train_data_path}. "
+            "Check if the run_summary.json and its referenced files are correct and accessible."
+        )
 
     logging.info(f"Training {args.model_type} model...")
     logging.info(f"Training data: {train_data_path}")

@@ -134,7 +134,8 @@ class WalkForwardTargetDiscovery:
 
             mean_score = np.mean(era_scores)
             std_score = np.std(era_scores)
-            sharpe = (mean_score / (std_score + 1e-6)) * (2*sign_consistency - 0.5)
+            # Scale Sharpe by sign consistency, offset by SIGN_CONSISTENCY_OFFSET for interpretability
+            sharpe = (mean_score / (std_score + 1e-6)) * (2*sign_consistency - self.SIGN_CONSISTENCY_OFFSET)
 
             return mean_score, std_score, sign_consistency, sharpe
 

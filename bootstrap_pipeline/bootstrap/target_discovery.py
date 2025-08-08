@@ -17,7 +17,8 @@ class WalkForwardTargetDiscovery:
         self.n_targets = len(target_columns)
         self.min_history_eras = min_history_eras
         self.era_weights = {}
-        
+        self.last_weights = None
+
         logging.info(f"Initialized walk-forward target discovery for {self.n_targets} targets")
     
     def generate_smart_combinations(self, n_combinations=15):
@@ -61,9 +62,9 @@ class WalkForwardTargetDiscovery:
         try:
             eras = history_df['era'].unique()
             if len(eras) < 3:
-                return 0.0, 0.0  # Not enough data for robust evaluation
-            
-            era_scores = []
+                return 0.0, 0.0, 0.0, 0.0  # Not enough data for robust evaluation
+
+            era_scores_raw = []
             
             for era in eras:
                 era_data = history_df[history_df['era'] == era]
@@ -76,19 +77,28 @@ class WalkForwardTargetDiscovery:
                 
                 # Create combined target
                 combined_target = np.dot(era_data[self.target_columns].values, weights)
-                
+
                 # Quick LightGBM evaluation
                 feature_matrix = era_data[feature_cols].values
-                feature_matrix = np.nan_to_num(feature_matrix, 0)
-                combined_target = np.nan_to_num(combined_target, 0)
-                
+
                 if len(feature_matrix) < 100 or np.std(combined_target) < 1e-8:
                     continue
-                
+
                 # Train-test split for this era
                 X_train, X_test, y_train, y_test = train_test_split(
                     feature_matrix, combined_target, test_size=0.3, random_state=42
                 )
+
+                # Median imputation based on training slice
+                feature_medians = np.nanmedian(X_train, axis=0)
+                feature_medians = np.where(np.isnan(feature_medians), 0, feature_medians)
+                X_train = np.where(np.isnan(X_train), feature_medians, X_train)
+                X_test = np.where(np.isnan(X_test), feature_medians, X_test)
+
+                target_median = np.nanmedian(y_train)
+                target_median = 0.0 if np.isnan(target_median) else target_median
+                y_train = np.where(np.isnan(y_train), target_median, y_train)
+                y_test = np.where(np.isnan(y_test), target_median, y_test)
                 
                 # Quick model
                 train_data = lgb.Dataset(X_train, label=y_train)
@@ -113,20 +123,24 @@ class WalkForwardTargetDiscovery:
                 if np.std(y_pred) > 1e-8 and np.std(y_test) > 1e-8:
                     correlation = np.corrcoef(y_pred, y_test)[0, 1]
                     if not np.isnan(correlation):
-                        era_scores.append(abs(correlation))
-            
-            if len(era_scores) < 2:
-                return 0.0, 0.0
-            
-            # Return mean and std (Sharpe-like measure)
+                        era_scores_raw.append(correlation)
+
+            if len(era_scores_raw) < 2:
+                return 0.0, 0.0, 0.0, 0.0
+
+            signs = [np.sign(c) for c in era_scores_raw if not np.isnan(c)]
+            sign_consistency = np.mean([s > 0 for s in signs]) if signs else 0.0
+            era_scores = [abs(c) for c in era_scores_raw if not np.isnan(c)]
+
             mean_score = np.mean(era_scores)
             std_score = np.std(era_scores)
-            
-            return mean_score, std_score
-            
+            sharpe = (mean_score / (std_score + 1e-6)) * (2*sign_consistency - 0.5)
+
+            return mean_score, std_score, sign_consistency, sharpe
+
         except Exception as e:
             logging.warning(f"Evaluation error: {e}")
-            return 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0
     
     def discover_weights_for_era(self, current_era, history_df, feature_cols):
         """
@@ -141,17 +155,15 @@ class WalkForwardTargetDiscovery:
         combination_results = []
         
         for i, weights in enumerate(combinations):
-            mean_score, std_score = self.evaluate_combination_robustly(
+            mean_score, std_score, sign_consistency, sharpe = self.evaluate_combination_robustly(
                 weights, history_df, feature_cols
             )
-            
-            # Sharpe-like ratio (prefer consistent performance)
-            sharpe = mean_score / (std_score + 1e-6)
-            
+
             combination_results.append({
                 'weights': weights,
                 'mean_score': mean_score,
                 'std_score': std_score,
+                'sign_consistency': sign_consistency,
                 'sharpe': sharpe
             })
         
@@ -160,7 +172,16 @@ class WalkForwardTargetDiscovery:
         
         if combination_results:
             best = combination_results[0]
-            logging.info(f"Era {current_era}: Best combination - Mean: {best['mean_score']:.4f}, Sharpe: {best['sharpe']:.4f}")
+            drift = 1.0
+            if self.last_weights is not None:
+                denom = np.linalg.norm(best['weights']) * np.linalg.norm(self.last_weights)
+                drift = np.dot(best['weights'], self.last_weights) / denom if denom != 0 else 0.0
+            logging.info(
+                f"Era {current_era}: Mean={best['mean_score']:.4f}, "
+                f"Sharpe={best['sharpe']:.3f}, Sign+={best['sign_consistency']:.2%}, "
+                f"EffTargets={1/np.sum(best['weights']**2):.2f}, Drift={drift:.3f}"
+            )
+            self.last_weights = best['weights']
             return best['weights']
         else:
             return np.ones(self.n_targets) / self.n_targets

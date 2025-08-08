@@ -57,6 +57,7 @@ def main():
     p_run.add_argument("--yolo-mode", action="store_true", help="Trust the original results, create 40+ features.")
     p_run.add_argument("--pretty", action="store_true", help="Print a formatted run summary table at the end.")
     p_run.add_argument("--no-color", action="store_true", help="Disable ANSI colors in pretty output.")
+    p_run.add_argument("--disable-pathfinding", action="store_true", help="Skip Stage 2 feature discovery/creation")
     # Smoke / sampling controls (added for faster iterative testing)
     p_run.add_argument("--smoke-mode", action="store_true", help="Enable fast sampling mode (limits eras, rows, targets, and features for a quicker end-to-end test).")
     p_run.add_argument("--smoke-max-eras", type=int, default=None, help="Maximum number of eras to process (overrides in smoke-mode).")
@@ -163,79 +164,85 @@ def main():
             update_summary_step(run_summary, "target_discovery", 0, {"adaptive_targets": stage1_output, "discovery_json": stage1_discovery}, status="CACHED")
             save_summary(run_summary, run_dir)
 
-        # --- STAGE 2: Creative Pathfinding Discovery ---
-        stage2_output = os.path.join(run_dir, "02_discovered_relationships.json")
-        stage2_cache_key = compute_hash({
-            'stage': 'pathfinding',
-            'input': stage1_output,
-            'yolo': args.yolo_mode,
-            'limits': {
-                'feature_limit': _resolve_smoke_value(args, 'smoke_feature_limit', 300),
-                'row_limit': _resolve_smoke_value(args, 'smoke_row_limit', 100_000)
-            },
-            'seed': args.seed
-        })
-        if not os.path.exists(stage2_output) or args.force:
-            cached_dir, meta = stage_cache_lookup('stage2', stage2_cache_key)
-            if cached_dir and not args.force:
-                logging.info("=== STAGE 2: RESTORED FROM CACHE ===")
-                materialize_cached_artifacts(cached_dir, {'relationships_json': stage2_output}, run_dir)
+        if not args.disable_pathfinding:
+            # --- STAGE 2: Creative Pathfinding Discovery ---
+            stage2_output = os.path.join(run_dir, "02_discovered_relationships.json")
+            stage2_cache_key = compute_hash({
+                'stage': 'pathfinding',
+                'input': stage1_output,
+                'yolo': args.yolo_mode,
+                'limits': {
+                    'feature_limit': _resolve_smoke_value(args, 'smoke_feature_limit', 300),
+                    'row_limit': _resolve_smoke_value(args, 'smoke_row_limit', 100_000)
+                },
+                'seed': args.seed
+            })
+            if not os.path.exists(stage2_output) or args.force:
+                cached_dir, meta = stage_cache_lookup('stage2', stage2_cache_key)
+                if cached_dir and not args.force:
+                    logging.info("=== STAGE 2: RESTORED FROM CACHE ===")
+                    materialize_cached_artifacts(cached_dir, {'relationships_json': stage2_output}, run_dir)
+                    update_summary_step(run_summary, "pathfinding", 0, {"relationships_json": stage2_output}, status="CACHED")
+                else:
+                    logging.info("="*20 + " STAGE 2: Creative Pathfinding Discovery " + "="*20)
+                    start_time = time.time()
+                    step_02_pathfinding.run(
+                        input_file=stage1_output,
+                        target_col="adaptive_target",
+                        output_relationships_file=stage2_output,
+                        yolo_mode=args.yolo_mode,
+                        feature_limit=_resolve_smoke_value(args, 'smoke_feature_limit', default_if_smoke=300),
+                        row_limit=_resolve_smoke_value(args, 'smoke_row_limit', default_if_smoke=100_000)
+                    )
+                    duration = time.time() - start_time
+                    update_summary_step(run_summary, "pathfinding", duration, {"relationships_json": stage2_output})
+                    stage_cache_store('stage2', stage2_cache_key, {'relationships_json': stage2_output}, {'seed': args.seed})
+                    save_summary(run_summary, run_dir)
+            else:
+                logging.info("="*20 + " STAGE 2: SKIPPED (Cached) " + "="*20)
                 update_summary_step(run_summary, "pathfinding", 0, {"relationships_json": stage2_output}, status="CACHED")
-            else:
-                logging.info("="*20 + " STAGE 2: Creative Pathfinding Discovery " + "="*20)
-                start_time = time.time()
-                step_02_pathfinding.run(
-                    input_file=stage1_output,
-                    target_col="adaptive_target",
-                    output_relationships_file=stage2_output,
-                    yolo_mode=args.yolo_mode,
-                    feature_limit=_resolve_smoke_value(args, 'smoke_feature_limit', default_if_smoke=300),
-                    row_limit=_resolve_smoke_value(args, 'smoke_row_limit', default_if_smoke=100_000)
-                )
-                duration = time.time() - start_time
-                update_summary_step(run_summary, "pathfinding", duration, {"relationships_json": stage2_output})
-                stage_cache_store('stage2', stage2_cache_key, {'relationships_json': stage2_output}, {'seed': args.seed})
                 save_summary(run_summary, run_dir)
-        else:
-            logging.info("="*20 + " STAGE 2: SKIPPED (Cached) " + "="*20)
-            update_summary_step(run_summary, "pathfinding", 0, {"relationships_json": stage2_output}, status="CACHED")
-            save_summary(run_summary, run_dir)
 
-        # --- STAGE 3: Feature Engineering ---
-        stage3_output = os.path.join(run_dir, "03_enhanced_features.parquet")
-        stage3_cache_key = compute_hash({
-            'stage': 'feature_engineering',
-            'relationships': stage2_output,
-            'max_new_features': args.max_new_features,
-            'limits': {
-                'row_limit': _resolve_smoke_value(args, 'smoke_row_limit', 100_000)
-            },
-            'seed': args.seed
-        })
-        if not os.path.exists(stage3_output) or args.force:
-            cached_dir, meta = stage_cache_lookup('stage3', stage3_cache_key)
-            if cached_dir and not args.force:
-                logging.info("=== STAGE 3: RESTORED FROM CACHE ===")
-                materialize_cached_artifacts(cached_dir, {'enhanced_data': stage3_output, 'new_features_list': os.path.join(run_dir, 'new_feature_names.json')}, run_dir)
-                update_summary_step(run_summary, "feature_engineering", 0, {"enhanced_data": stage3_output, "new_features_list": os.path.join(run_dir, 'new_feature_names.json')}, status="CACHED")
+            # --- STAGE 3: Feature Engineering ---
+            stage3_output = os.path.join(run_dir, "03_enhanced_features.parquet")
+            stage3_cache_key = compute_hash({
+                'stage': 'feature_engineering',
+                'relationships': stage2_output,
+                'max_new_features': args.max_new_features,
+                'limits': {
+                    'row_limit': _resolve_smoke_value(args, 'smoke_row_limit', 100_000)
+                },
+                'seed': args.seed
+            })
+            if not os.path.exists(stage3_output) or args.force:
+                cached_dir, meta = stage_cache_lookup('stage3', stage3_cache_key)
+                if cached_dir and not args.force:
+                    logging.info("=== STAGE 3: RESTORED FROM CACHE ===")
+                    materialize_cached_artifacts(cached_dir, {'enhanced_data': stage3_output, 'new_features_list': os.path.join(run_dir, 'new_feature_names.json')}, run_dir)
+                    update_summary_step(run_summary, "feature_engineering", 0, {"enhanced_data": stage3_output, "new_features_list": os.path.join(run_dir, 'new_feature_names.json')}, status="CACHED")
+                else:
+                    logging.info("="*20 + " STAGE 3: Feature Engineering " + "="*20)
+                    start_time = time.time()
+                    step_03_feature_engineering.run(
+                        input_file=stage1_output,
+                        relationships_file=stage2_output,
+                        output_file=stage3_output,
+                        max_features=args.max_new_features,
+                        row_limit=_resolve_smoke_value(args, 'smoke_row_limit', default_if_smoke=100_000)
+                    )
+                    duration = time.time() - start_time
+                    update_summary_step(run_summary, "feature_engineering", duration, {"enhanced_data": stage3_output, "new_features_list": os.path.join(run_dir, 'new_feature_names.json')})
+                    stage_cache_store('stage3', stage3_cache_key, {'enhanced_data': stage3_output, 'new_features_list': os.path.join(run_dir, 'new_feature_names.json')}, {'seed': args.seed})
+                    save_summary(run_summary, run_dir)
             else:
-                logging.info("="*20 + " STAGE 3: Feature Engineering " + "="*20)
-                start_time = time.time()
-                step_03_feature_engineering.run(
-                    input_file=stage1_output,
-                    relationships_file=stage2_output,
-                    output_file=stage3_output,
-                    max_features=args.max_new_features,
-                    row_limit=_resolve_smoke_value(args, 'smoke_row_limit', default_if_smoke=100_000)
-                )
-                duration = time.time() - start_time
-                update_summary_step(run_summary, "feature_engineering", duration, {"enhanced_data": stage3_output, "new_features_list": os.path.join(run_dir, 'new_feature_names.json')})
-                stage_cache_store('stage3', stage3_cache_key, {'enhanced_data': stage3_output, 'new_features_list': os.path.join(run_dir, 'new_feature_names.json')}, {'seed': args.seed})
+                logging.info("="*20 + " STAGE 3: SKIPPED (Cached) " + "="*20)
+                update_summary_step(run_summary, "feature_engineering", 0, {"enhanced_data": stage3_output}, status="CACHED")
                 save_summary(run_summary, run_dir)
         else:
-            logging.info("="*20 + " STAGE 3: SKIPPED (Cached) " + "="*20)
-            update_summary_step(run_summary, "feature_engineering", 0, {"enhanced_data": stage3_output}, status="CACHED")
-            save_summary(run_summary, run_dir)
+            logging.info("Skipping Stage 2 (disable-pathfinding).")
+            update_summary_step(run_summary, "pathfinding", 0, {}, status="SKIPPED")
+            logging.info("Skipping Stage 3 (disable-pathfinding).")
+            update_summary_step(run_summary, "feature_engineering", 0, {}, status="SKIPPED")
 
         logging.info("✅ Pipeline run completed successfully!")
         run_summary["status"] = "SUCCESS"

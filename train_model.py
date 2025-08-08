@@ -43,6 +43,7 @@ def main():
         with open(run_summary["parameters"]["features_json"]) as f:
             original_features = json.load(f)["feature_sets"]["medium"]
         feature_cols = original_features + new_features
+        train_df = pd.read_parquet(train_data_path, columns=feature_cols + [target_col, 'era'])
     else: # control
         train_data_path = run_summary["parameters"]["input_data"]
         target_col = "target" # Assuming standard target for control
@@ -51,6 +52,9 @@ def main():
         train_df = pd.read_parquet(train_data_path, columns=feature_cols + [target_col, 'era'])
 
     validation_df = pd.read_parquet(args.validation_data)
+
+    if 'train_df' not in locals():
+        raise RuntimeError("train_df must be defined before feature extraction")
 
     logging.info(f"Training {args.model_type} model...")
     logging.info(f"Training data: {train_data_path}")

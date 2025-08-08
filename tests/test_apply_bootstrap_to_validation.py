@@ -12,7 +12,7 @@ def test_compute_adaptive_target_defaults_to_equal_weights_for_missing_era():
         'target_a': [0.1, 0.2, 0.3],
         'target_b': [0.9, 0.8, 0.7],
     })
-    weights_map = {'1': np.array([0.7, 0.3]), '2': np.array([0.6, 0.4])}
+    weights_map = {1: np.array([0.7, 0.3]), 2: np.array([0.6, 0.4])}
 
     compute_adaptive_target(df, weights_map)
 

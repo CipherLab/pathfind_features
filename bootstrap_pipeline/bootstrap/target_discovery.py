@@ -184,10 +184,16 @@ class WalkForwardTargetDiscovery:
                     drift = 1.0  # Both zero vectors: perfect similarity
                 else:
                     drift = 0.0  # One zero, one nonzero: no similarity
+            eff_targets_denom = np.sum(best['weights']**2)
+            if eff_targets_denom == 0:
+                eff_targets = float('inf')
+                logging.warning(f"EffTargets denominator is zero for era {current_era}. Setting EffTargets to infinity.")
+            else:
+                eff_targets = 1 / eff_targets_denom
             logging.info(
                 f"Era {current_era}: Mean={best['mean_score']:.4f}, "
                 f"Sharpe={best['sharpe']:.3f}, Sign+={best['sign_consistency']:.2%}, "
-                f"EffTargets={1/np.sum(best['weights']**2):.2f}, Drift={drift:.3f}"
+                f"EffTargets={eff_targets:.2f}, Drift={drift:.3f}"
             )
             self.last_weights = best['weights']
             return best['weights']

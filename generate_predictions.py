@@ -39,7 +39,12 @@ def main():
         for batch in parquet_file.iter_batches(columns=feats, batch_size=args.batch_size):
             df = batch.to_pandas()
             preds = model.predict(df[feats])
-            writer.writerows([[p] for p in preds])
+            # Avoid creating an intermediate list of lists
+            try:
+                writer.writerows(preds.reshape(-1, 1))
+            except AttributeError:
+                for p in preds:
+                    writer.writerow([p])
     print(f"Predictions written to {args.output}")
 
 

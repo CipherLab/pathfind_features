@@ -24,8 +24,8 @@ class WalkForwardTargetDiscovery:
         """Generate target combinations to test - fewer but smarter"""
         combinations = []
         
-        # Pure targets (top performers only)
-        for i in range(min(5, self.n_targets)):
+        # All pure single-target combinations
+        for i in range(self.n_targets):
             weights = np.zeros(self.n_targets)
             weights[i] = 1.0
             combinations.append(weights)
@@ -33,7 +33,7 @@ class WalkForwardTargetDiscovery:
         # Equal weight (the baseline everyone uses)
         combinations.append(np.ones(self.n_targets) / self.n_targets)
         
-        # Top-heavy (first few targets get most weight)
+        # Top-heavy (first few indices for now; later: rank by history)
         for focus in [2, 3]:
             if focus <= self.n_targets:
                 weights = np.zeros(self.n_targets)

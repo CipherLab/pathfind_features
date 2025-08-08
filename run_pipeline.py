@@ -55,9 +55,14 @@ def main():
     p_run.add_argument("--skip-walk-forward", action="store_true", help="Use equal weights for targets (for quick tests).")
     p_run.add_argument("--max-new-features", type=int, default=20, help="Number of new relationship features to create.")
     p_run.add_argument("--yolo-mode", action="store_true", help="Trust the original results, create 40+ features.")
+    p_run.add_argument("--pf-debug", action="store_true", help="Enable detailed pathfinding debug logging and write a .debug.json summary.")
+    p_run.add_argument("--pf-debug-every-rows", type=int, default=10000, help="Emit pathfinding debug stats every N processed rows (when --pf-debug is set).")
     p_run.add_argument("--pretty", action="store_true", help="Print a formatted run summary table at the end.")
     p_run.add_argument("--no-color", action="store_true", help="Disable ANSI colors in pretty output.")
     p_run.add_argument("--disable-pathfinding", action="store_true", help="Skip Stage 2 (pathfinding) and Stage 3 (feature engineering).")
+    # Reuse artifacts
+    p_run.add_argument("--stage1-from", dest="stage1_from", default=None, help="Path to a previous run directory to reuse Stage 1 artifacts (01_adaptive_targets.parquet and 01_target_discovery.json).")
+    p_run.add_argument("--stage2-from", dest="stage2_from", default=None, help="Path to a previous run directory to reuse Stage 2 artifacts (02_discovered_relationships.json).")
     # Smoke / sampling controls (added for faster iterative testing)
     p_run.add_argument("--smoke-mode", action="store_true", help="Enable fast sampling mode (limits eras, rows, targets, and features for a quicker end-to-end test).")
     p_run.add_argument("--smoke-max-eras", type=int, default=None, help="Maximum number of eras to process (overrides in smoke-mode).")
@@ -130,7 +135,23 @@ def main():
             },
             'seed': args.seed
         })
-        if not os.path.exists(stage1_output) or args.force:
+        if args.stage1_from:
+            # Reuse Stage 1 artifacts from provided run directory
+            logging.info("=== STAGE 1: REUSED FROM PROVIDED RUN ===")
+            try:
+                import shutil
+                s1_src_adapt = os.path.join(args.stage1_from, "01_adaptive_targets.parquet")
+                s1_src_json = os.path.join(args.stage1_from, "01_target_discovery.json")
+                if not (os.path.exists(s1_src_adapt) and os.path.exists(s1_src_json)):
+                    raise FileNotFoundError("Provided --stage1-from does not contain required Stage 1 artifacts")
+                shutil.copy2(s1_src_adapt, stage1_output)
+                shutil.copy2(s1_src_json, stage1_discovery)
+                update_summary_step(run_summary, "target_discovery", 0, {"adaptive_targets": stage1_output, "discovery_json": stage1_discovery}, status="CACHED")
+                save_summary(run_summary, run_dir)
+            except Exception as e:
+                logging.critical(f"Failed to reuse Stage 1 from {args.stage1_from}: {e}")
+                raise
+        elif not os.path.exists(stage1_output) or args.force:
             cached_dir, meta = stage_cache_lookup('stage1', stage1_cache_key)
             if cached_dir and not args.force:
                 logging.info("=== STAGE 1: RESTORED FROM CACHE ===")
@@ -180,7 +201,20 @@ def main():
                 },
                 'seed': args.seed
             })
-            if not os.path.exists(stage2_output) or args.force:
+            if args.stage2_from:
+                logging.info("=== STAGE 2: REUSED FROM PROVIDED RUN ===")
+                try:
+                    import shutil
+                    s2_src = os.path.join(args.stage2_from, "02_discovered_relationships.json")
+                    if not os.path.exists(s2_src):
+                        raise FileNotFoundError("Provided --stage2-from does not contain 02_discovered_relationships.json")
+                    shutil.copy2(s2_src, stage2_output)
+                    update_summary_step(run_summary, "pathfinding", 0, {"relationships_json": stage2_output}, status="CACHED")
+                    save_summary(run_summary, run_dir)
+                except Exception as e:
+                    logging.critical(f"Failed to reuse Stage 2 from {args.stage2_from}: {e}")
+                    raise
+            elif not os.path.exists(stage2_output) or args.force:
                 cached_dir, meta = stage_cache_lookup('stage2', stage2_cache_key)
                 if cached_dir and not args.force:
                     logging.info("=== STAGE 2: RESTORED FROM CACHE ===")
@@ -195,7 +229,9 @@ def main():
                         output_relationships_file=stage2_output,
                         yolo_mode=args.yolo_mode,
                         feature_limit=_resolve_smoke_value(args, 'smoke_feature_limit', default_if_smoke=300),
-                        row_limit=_resolve_smoke_value(args, 'smoke_row_limit', default_if_smoke=100_000)
+                        row_limit=_resolve_smoke_value(args, 'smoke_row_limit', default_if_smoke=100_000),
+                        debug=args.pf_debug,
+                        debug_every_rows=getattr(args, 'pf_debug_every_rows', 10000),
                     )
                     duration = time.time() - start_time
                     update_summary_step(run_summary, "pathfinding", duration, {"relationships_json": stage2_output})

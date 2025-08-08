@@ -1,0 +1,25 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "e2e_control_run",
+			"type": "shell",
+			"command": "./.venv/bin/python run_pipeline.py run --input-data v5.0/train.parquet --features-json v5.0/features.json --run-name control_targets_only --max-new-features 0 --disable-pathfinding --pretty --smoke-mode --smoke-max-eras 60 --smoke-row-limit 150000 --seed 42",
+			"isBackground": false,
+			"problemMatcher": [
+				"$flake8-stylish"
+			],
+			"group": "build"
+		},
+		{
+			"label": "e2e_experiment_run",
+			"type": "shell",
+			"command": "./.venv/bin/python run_pipeline.py run --input-data v5.0/train.parquet --features-json v5.0/features.json --run-name exp_full_small --max-new-features 8 --pretty --smoke-mode --smoke-max-eras 60 --smoke-row-limit 150000 --smoke-feature-limit 300 --seed 42",
+			"isBackground": false,
+			"problemMatcher": [
+				"$flake8-stylish"
+			],
+			"group": "build"
+		}
+	]
+}

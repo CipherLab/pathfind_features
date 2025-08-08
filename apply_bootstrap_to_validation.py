@@ -50,7 +50,7 @@ def apply_relationships(df: pd.DataFrame, relationships: list, max_features: int
         strength = float(rel.get('strength', 1.0))
         if feat1 not in df.columns or feat2 not in df.columns:
             continue
-        name = f"path_val_{i:02d}_{feat1[-4:]}x{feat2[-4:]}"
+        name = f"path_{i:02d}_{feat1[-4:]}x{feat2[-4:]}"
         df[name] = (df[feat1].astype('float32') * df[feat2].astype('float32') * strength).astype('float32')
         new_cols.append(name)
     return new_cols

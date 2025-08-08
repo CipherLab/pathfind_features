@@ -57,7 +57,7 @@ def main():
     p_run.add_argument("--yolo-mode", action="store_true", help="Trust the original results, create 40+ features.")
     p_run.add_argument("--pretty", action="store_true", help="Print a formatted run summary table at the end.")
     p_run.add_argument("--no-color", action="store_true", help="Disable ANSI colors in pretty output.")
-    p_run.add_argument("--disable-pathfinding", action="store_true", help="Skip Stage 2 feature discovery/creation")
+    p_run.add_argument("--disable-pathfinding", action="store_true", help="Skip Stage 2 (pathfinding) and Stage 3 (feature engineering).")
     # Smoke / sampling controls (added for faster iterative testing)
     p_run.add_argument("--smoke-mode", action="store_true", help="Enable fast sampling mode (limits eras, rows, targets, and features for a quicker end-to-end test).")
     p_run.add_argument("--smoke-max-eras", type=int, default=None, help="Maximum number of eras to process (overrides in smoke-mode).")
@@ -164,9 +164,12 @@ def main():
             update_summary_step(run_summary, "target_discovery", 0, {"adaptive_targets": stage1_output, "discovery_json": stage1_discovery}, status="CACHED")
             save_summary(run_summary, run_dir)
 
+        # Predefine output paths for later stages
+        stage2_output = os.path.join(run_dir, "02_discovered_relationships.json")
+        stage3_output = os.path.join(run_dir, "03_enhanced_features.parquet")
+
+        # --- STAGE 2: Creative Pathfinding Discovery ---
         if not args.disable_pathfinding:
-            # --- STAGE 2: Creative Pathfinding Discovery ---
-            stage2_output = os.path.join(run_dir, "02_discovered_relationships.json")
             stage2_cache_key = compute_hash({
                 'stage': 'pathfinding',
                 'input': stage1_output,
@@ -202,9 +205,12 @@ def main():
                 logging.info("="*20 + " STAGE 2: SKIPPED (Cached) " + "="*20)
                 update_summary_step(run_summary, "pathfinding", 0, {"relationships_json": stage2_output}, status="CACHED")
                 save_summary(run_summary, run_dir)
+        else:
+            logging.info("="*20 + " STAGE 2: DISABLED " + "="*20)
+            update_summary_step(run_summary, "pathfinding", 0, {}, status="DISABLED")
 
-            # --- STAGE 3: Feature Engineering ---
-            stage3_output = os.path.join(run_dir, "03_enhanced_features.parquet")
+        # --- STAGE 3: Feature Engineering ---
+        if not args.disable_pathfinding:
             stage3_cache_key = compute_hash({
                 'stage': 'feature_engineering',
                 'relationships': stage2_output,
@@ -239,10 +245,8 @@ def main():
                 update_summary_step(run_summary, "feature_engineering", 0, {"enhanced_data": stage3_output}, status="CACHED")
                 save_summary(run_summary, run_dir)
         else:
-            logging.info("Skipping Stage 2 (disable-pathfinding).")
-            update_summary_step(run_summary, "pathfinding", 0, {}, status="SKIPPED")
-            logging.info("Skipping Stage 3 (disable-pathfinding).")
-            update_summary_step(run_summary, "feature_engineering", 0, {}, status="SKIPPED")
+            logging.info("="*20 + " STAGE 3: DISABLED " + "="*20)
+            update_summary_step(run_summary, "feature_engineering", 0, {}, status="DISABLED")
 
         logging.info("✅ Pipeline run completed successfully!")
         run_summary["status"] = "SUCCESS"

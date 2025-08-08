@@ -18,6 +18,8 @@ class WalkForwardTargetDiscovery:
         self.min_history_eras = min_history_eras
         self.era_weights = {}
         self.last_weights = None
+        # Offset used in Sharpe scaling by sign-consistency; 0.5 means neutral (50%)
+        self.SIGN_CONSISTENCY_OFFSET = 0.5
 
         logging.info(f"Initialized walk-forward target discovery for {self.n_targets} targets")
     

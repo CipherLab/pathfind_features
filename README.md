@@ -46,17 +46,14 @@ python train_model.py \
   --model-type experimental
 ```
 
-### Step 4: Create a Submission
+### Step 4: Generate Predictions
 
-Use the `create_submission.py` script to generate predictions and create a submission file.
+Use the `generate_predictions.py` script to generate predictions from your trained model.
 
 ```bash
-python create_submission.py \
-  --live-data "v5.0/live.parquet" \
-  --model-paths "models/experimental_model.lgb" \
-  --run-dir "pipeline_runs/run_..."
+python generate_predictions.py \
+  --model models/experimental_model.lgb \
+  --data v5.0/live.parquet \
+  --output predictions.csv
 ```
 
-To ensemble multiple models, provide multiple paths to `--model-paths`.
-
-```

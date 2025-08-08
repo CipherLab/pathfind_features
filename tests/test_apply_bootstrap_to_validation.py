@@ -5,10 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 from apply_bootstrap_to_validation import compute_adaptive_target
-
-
 def test_compute_adaptive_target_defaults_to_equal_weights_for_missing_era():
     df = pd.DataFrame({
         'era': [1, 2, 3],

@@ -175,8 +175,15 @@ class WalkForwardTargetDiscovery:
             best = combination_results[0]
             drift = 1.0
             if self.last_weights is not None:
-                denom = np.linalg.norm(best['weights']) * np.linalg.norm(self.last_weights)
-                drift = np.dot(best['weights'], self.last_weights) / denom if denom != 0 else 0.0
+                norm_best = np.linalg.norm(best['weights'])
+                norm_last = np.linalg.norm(self.last_weights)
+                denom = norm_best * norm_last
+                if denom != 0:
+                    drift = np.dot(best['weights'], self.last_weights) / denom
+                elif np.allclose(best['weights'], 0) and np.allclose(self.last_weights, 0):
+                    drift = 1.0  # Both zero vectors: perfect similarity
+                else:
+                    drift = 0.0  # One zero, one nonzero: no similarity
             logging.info(
                 f"Era {current_era}: Mean={best['mean_score']:.4f}, "
                 f"Sharpe={best['sharpe']:.3f}, Sign+={best['sign_consistency']:.2%}, "

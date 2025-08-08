@@ -42,7 +42,7 @@ const History = () => {
   useEffect(()=>{
     (async ()=>{
       try {
-        const r = await got(`${API}/runs/fs`).json();
+        const r = await got(`${API}/runs/list-fs`).json();
         setItems(r.reverse());
       } catch {}
     })();
@@ -53,14 +53,14 @@ const History = () => {
     if (input === 'l' && items[sel]){
       const name = items[sel].name;
       try {
-        const r = await got(`${API}/runs/fs/${name}/logs`).json();
+        const r = await got(`${API}/runs/list-fs/${name}/logs`).json();
         setLogs(r.content || "");
       } catch {}
     }
     if (input === 's' && items[sel]){
       const name = items[sel].name;
       try {
-        const r = await got(`${API}/runs/fs/${name}/summary`).text();
+        const r = await got(`${API}/runs/list-fs/${name}/summary`).text();
         setSummary(r);
       } catch {}
     }

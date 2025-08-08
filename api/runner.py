@@ -78,6 +78,10 @@ class RunManager:
             "--features-json", record.params.features_json,
             "--run-name", record.params.run_name or f"api_{run_id[:6]}",
         ]
+        if getattr(record.params, 'stage1_from', None):
+            args += ["--stage1-from", str(record.params.stage1_from)]
+        if getattr(record.params, 'stage2_from', None):
+            args += ["--stage2-from", str(record.params.stage2_from)]
         if record.params.force: args.append("--force")
         if record.params.skip_walk_forward: args.append("--skip-walk-forward")
         args += ["--max-new-features", str(record.params.max_new_features)]

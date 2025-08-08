@@ -10,6 +10,8 @@ class RunRequest:
     input_data: str
     features_json: str
     run_name: Optional[str] = None
+    stage1_from: Optional[str] = None
+    stage2_from: Optional[str] = None
     force: bool = False
     skip_walk_forward: bool = False
     max_new_features: int = 20

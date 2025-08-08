@@ -1,4 +1,4 @@
-import React from 'react'
+import * as React from 'react'
 import { Link } from 'react-router-dom'
 
 export type Run = { name: string; status: string; started?: string; path: string }
@@ -6,7 +6,7 @@ export type Run = { name: string; status: string; started?: string; path: string
 export function RunListItem({ run }: { run: Run }){
   return (
     <tr>
-      <td>{run.status}</td>
+  <td><span className={`badge ${run.status?.toLowerCase?.()}`}>{run.status}</span></td>
       <td><Link to={`/runs/${encodeURIComponent(run.name)}`}>{run.name}</Link></td>
       <td>{run.started || ''}</td>
     </tr>

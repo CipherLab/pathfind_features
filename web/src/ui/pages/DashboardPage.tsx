@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import RunList from '../components/RunList'
 import RunCharts from '../components/RunCharts'
+import ActiveRuns from '../components/ActiveRuns'
 
 const API = (import.meta as any).env?.VITE_API_URL || 'http://127.0.0.1:8000'
 
@@ -16,7 +17,7 @@ export default function DashboardPage(){
   useEffect(()=>{
     let ignore = false
     const load = async()=>{
-      const res = await fetch(`${API}/runs/fs`)
+      const res = await fetch(`${API}/runs/list-fs`)
       const data = await res.json()
       if(!ignore) setRuns(data)
     }
@@ -37,17 +38,18 @@ export default function DashboardPage(){
 
   return (
     <div>
+  <ActiveRuns />
       <div className="row">
-        <input placeholder="Search runs" value={q} onChange={e=>setQ(e.target.value)} />
+        <input className="input" placeholder="Search runs" value={q} onChange={e=>setQ(e.target.value)} />
         <label>
           Sort
-          <select title="Sort runs" value={sort} onChange={e=>setSort(e.target.value as any)}>
+          <select className="input" title="Sort runs" value={sort} onChange={e=>setSort(e.target.value as any)}>
           <option value="started">Start time</option>
           <option value="name">Name</option>
           <option value="status">Status</option>
           </select>
         </label>
-        <Link to="/wizard"><button>Create new run</button></Link>
+        <Link to="/wizard"><button className="btn btn-primary">Create new run</button></Link>
       </div>
       <div className="card mt8">
         <RunList runs={filtered as any} />

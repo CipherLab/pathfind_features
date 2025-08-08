@@ -1,27 +1,61 @@
 #!/bin/bash
 set -euo pipefail
 
-# Kill existing API and CLI processes (best-effort)
+# Kill existing API and Web app processes (best-effort)
+echo "Stopping existing processes..."
 pkill -f "uvicorn api.server:app" || true
-pkill -f "tsx index.jsx" || true
-pkill -f "babel-node index.js" || true
+pkill -f "vite" || true
 fuser -k 8000/tcp || true
+fuser -k 5173/tcp || true
 sleep 0.5
 
-# Start the API server (background)
-API_CMD="/home/mat/Downloads/pathfind_features/.venv/bin/uvicorn api.server:app --host 127.0.0.1 --port 8000 --reload"
+# Determine a usable LAN IP (prefer 192.168.x.x, then 10.x.x.x, then 172.16-31)
+LAN_IP=${LAN_IP:-}
+if [ -z "${LAN_IP}" ]; then
+	# Try to detect via hostname -I
+	for ip in $(hostname -I 2>/dev/null || true); do
+		if [[ $ip =~ ^192\.168\.[0-9]+\.[0-9]+$ ]]; then LAN_IP=$ip; break; fi
+	done
+fi
+if [ -z "${LAN_IP}" ]; then
+	for ip in $(hostname -I 2>/dev/null || true); do
+		if [[ $ip =~ ^10\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then LAN_IP=$ip; break; fi
+	done
+fi
+if [ -z "${LAN_IP}" ]; then
+	for ip in $(hostname -I 2>/dev/null || true); do
+		if [[ $ip =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]+\.[0-9]+$ ]]; then LAN_IP=$ip; break; fi
+	done
+fi
+LAN_IP=${LAN_IP:-127.0.0.1}
+
+# Start the API server (background) – bind to all interfaces so it's reachable via localhost and LAN IP
+API_CMD="/home/mat/Downloads/pathfind_features/.venv/bin/uvicorn api.server:app --host 0.0.0.0 --port 8000 --reload"
 echo "Starting API: $API_CMD"
 $API_CMD &
 API_PID=$!
 
-# Ensure API is killed when this script exits
+# Start the Web App (background)
+echo "Building and starting Web App..."
+# Start the Web App – expose dev server on all interfaces and point it at the API via VITE_API_URL
+cd /home/mat/Downloads/pathfind_features/web
+npm run build
+export VITE_API_URL="http://${LAN_IP}:8000"
+echo "VITE_API_URL=${VITE_API_URL}"
+npm run dev -- --host 0.0.0.0 --port 5173 &
+WEB_PID=$!
+cd ..
+
+# Ensure processes are killed when this script exits
 cleanup() {
-	echo "Stopping API (PID $API_PID)..."
+	echo "Cleaning up..."
 	kill "$API_PID" 2>/dev/null || true
+	kill "$WEB_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
 
-# Start the CLI (foreground) using tsx via npm script
-echo "Starting CLI (PATHFIND_API=http://127.0.0.1:8000)..."
-cd /home/mat/Downloads/pathfind_features/cli
-PATHFIND_API=http://127.0.0.1:8000 npm start
+# Wait for background processes to finish
+echo "API running with PID $API_PID"
+echo "Web App running with PID $WEB_PID"
+echo "Press Ctrl+C to stop."
+wait

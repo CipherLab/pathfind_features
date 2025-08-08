@@ -7,6 +7,7 @@ import os
 import sys
 from datetime import datetime
 import time
+import shutil
 
 # Ensure the bootstrap_pipeline module is in the Python path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -43,6 +44,11 @@ def _resolve_smoke_value(args, attr_name, default_if_smoke):
 
 
 def main():
+    # Clean up __pycache__ directories
+    for root, dirs, files in os.walk(os.path.dirname(os.path.abspath(__file__))):
+        if '__pycache__' in dirs:
+            shutil.rmtree(os.path.join(root, '__pycache__'))
+
     parser = argparse.ArgumentParser(description="Managed Bootstrap Feature Discovery Pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
@@ -139,7 +145,6 @@ def main():
             # Reuse Stage 1 artifacts from provided run directory
             logging.info("=== STAGE 1: REUSED FROM PROVIDED RUN ===")
             try:
-                import shutil
                 s1_src_adapt = os.path.join(args.stage1_from, "01_adaptive_targets.parquet")
                 s1_src_json = os.path.join(args.stage1_from, "01_target_discovery.json")
                 if not (os.path.exists(s1_src_adapt) and os.path.exists(s1_src_json)):
@@ -204,7 +209,6 @@ def main():
             if args.stage2_from:
                 logging.info("=== STAGE 2: REUSED FROM PROVIDED RUN ===")
                 try:
-                    import shutil
                     s2_src = os.path.join(args.stage2_from, "02_discovered_relationships.json")
                     if not os.path.exists(s2_src):
                         raise FileNotFoundError("Provided --stage2-from does not contain 02_discovered_relationships.json")

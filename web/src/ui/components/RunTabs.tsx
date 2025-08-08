@@ -6,7 +6,7 @@ function Tabs({tab,setTab}:{tab:number; setTab:(n:number)=>void}){
   return (
     <div className="tabs">
       {[['Performance',0],['Logs',1],['Artifacts',2]].map(([label,idx])=> (
-        <button key={label as string} onClick={()=>setTab(idx as number)} className={`tab ${tab===idx? 'active':''}`}>{label as string}</button>
+  <button key={label as string} onClick={()=>setTab(idx as number)} className={`tab ${tab===idx? 'active':''}`}>{label as string}</button>
       ))}
     </div>
   )
@@ -21,9 +21,9 @@ export default function RunTabs({ name }: { name: string }){
   useEffect(()=>{
     let ignore=false
     async function load(){
-      try{ const p = await fetch(`${API_BASE}/runs/fs/${encodeURIComponent(name)}/performance`).then(r=> r.ok? r.json(): {content:''}); if(!ignore) setPerf(p.content||'') }catch{}
-      try{ const l = await fetch(`${API_BASE}/runs/fs/${encodeURIComponent(name)}/logs`).then(r=> r.json()); if(!ignore) setLogs(l.content||'') }catch{}
-      try{ const a = await fetch(`${API_BASE}/runs/fs/${encodeURIComponent(name)}/artifacts`).then(r=> r.json()); if(!ignore) setArts(a||[]) }catch{}
+      try{ const p = await fetch(`${API_BASE}/runs/${encodeURIComponent(name)}/performance`).then(r=> r.ok? r.json(): {content:''}); if(!ignore) setPerf(p.content||'') }catch{}
+      try{ const l = await fetch(`${API_BASE}/runs/${encodeURIComponent(name)}/logs`).then(r=> r.json()); if(!ignore) setLogs(l.content||'') }catch{}
+      try{ const a = await fetch(`${API_BASE}/runs/${encodeURIComponent(name)}/artifacts`).then(r=> r.json()); if(!ignore) setArts(a||[]) }catch{}
     }
     load()
     const id = setInterval(load, 5000)

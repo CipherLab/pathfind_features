@@ -22,6 +22,8 @@ class RunReqModel(BaseModel):
     input_data: str
     features_json: str
     run_name: Optional[str] = None
+    stage1_from: Optional[str] = None
+    stage2_from: Optional[str] = None
     force: bool = False
     skip_walk_forward: bool = False
     max_new_features: int = 20
@@ -40,9 +42,80 @@ class RunReqModel(BaseModel):
 async def health():
     return {"status": "ok"}
 
+@app.get("/ping")
+async def ping():
+    return {"status": "pong"}
+
 @app.get("/runs")
 async def list_runs():
     return RUNS.list_runs()
+
+# NOTE: Declare static and specific FS-based routes BEFORE dynamic parameter routes
+@app.get("/runs/list-fs")
+async def list_runs_fs_compat():
+    return RUNS.list_runs_fs()
+
+@app.get("/runs/fs")
+async def list_runs_fs_alias():
+    return RUNS.list_runs_fs()
+
+@app.get("/runs/{run_name}/summary")
+async def get_run_summary(run_name: str):
+    from pathlib import Path
+    base = Path(__file__).resolve().parents[1] / "pipeline_runs" / run_name
+    p = base / "run_summary.json"
+    if not p.exists():
+        raise HTTPException(404, detail="summary not found")
+    return p.read_text(encoding="utf-8", errors="ignore")
+
+@app.get("/runs/{run_name}/logs")
+async def get_run_logs(run_name: str, tail: int = 4000):
+    from pathlib import Path
+    base = Path(__file__).resolve().parents[1] / "pipeline_runs" / run_name
+    p = base / "logs.log"
+    if not p.exists():
+        raise HTTPException(404, detail="logs not found")
+    txt = p.read_text(encoding="utf-8", errors="ignore")
+    return {"content": txt[-tail:]}
+
+# Back-compat aliases used by CLI/UI
+@app.get("/runs/list-fs/{run_name}/logs")
+async def get_run_logs_compat(run_name: str, tail: int = 4000):
+    return await get_run_logs(run_name, tail)
+
+@app.get("/runs/list-fs/{run_name}/summary")
+async def get_run_summary_compat(run_name: str):
+    return await get_run_summary(run_name)
+
+@app.get("/runs/{run_name}/artifacts")
+async def list_run_artifacts(run_name: str):
+    from pathlib import Path
+    base = Path(__file__).resolve().parents[1] / "pipeline_runs" / run_name
+    if not base.exists() or not base.is_dir():
+        raise HTTPException(404, detail="run not found")
+    out = []
+    for p in base.iterdir():
+        if p.is_file():
+            try:
+                stat = p.stat()
+                out.append({
+                    "name": p.name,
+                    "size": stat.st_size,
+                    "modified": stat.st_mtime,
+                })
+            except Exception:
+                out.append({"name": p.name})
+    return sorted(out, key=lambda x: x.get("name", ""))
+
+@app.get("/runs/{run_name}/performance")
+async def get_run_performance(run_name: str):
+    from pathlib import Path
+    base = Path(__file__).resolve().parents[1] / "pipeline_runs" / run_name
+    p = base / "performance_report.txt"
+    if not p.exists():
+        # Return empty content instead of 404 to avoid noisy logs during early run stages
+        return {"content": ""}
+    return {"content": p.read_text(encoding="utf-8", errors="ignore")}
 
 @app.post("/runs", status_code=202)
 async def start_run(body: RunReqModel):
@@ -65,60 +138,6 @@ async def get_logs(run_id: str):
     if not path.exists():
         return {"content": ""}
     return {"content": path.read_text(encoding="utf-8", errors="ignore")[-200000:]}
-
-@app.get("/runs/fs")
-async def list_runs_fs():
-    return RUNS.list_runs_fs()
-
-@app.get("/runs/fs/{run_name}/summary")
-async def get_run_summary(run_name: str):
-    from pathlib import Path
-    base = Path(__file__).resolve().parents[1] / "pipeline_runs" / run_name
-    p = base / "run_summary.json"
-    if not p.exists():
-        raise HTTPException(404, detail="summary not found")
-    return p.read_text(encoding="utf-8", errors="ignore")
-
-@app.get("/runs/fs/{run_name}/logs")
-async def get_run_logs(run_name: str, tail: int = 4000):
-    from pathlib import Path
-    base = Path(__file__).resolve().parents[1] / "pipeline_runs" / run_name
-    p = base / "logs.log"
-    if not p.exists():
-        raise HTTPException(404, detail="logs not found")
-    txt = p.read_text(encoding="utf-8", errors="ignore")
-    return {"content": txt[-tail:]}
-
-
-@app.get("/runs/fs/{run_name}/artifacts")
-async def list_run_artifacts(run_name: str):
-    from pathlib import Path
-    base = Path(__file__).resolve().parents[1] / "pipeline_runs" / run_name
-    if not base.exists() or not base.is_dir():
-        raise HTTPException(404, detail="run not found")
-    out = []
-    for p in base.iterdir():
-        if p.is_file():
-            try:
-                stat = p.stat()
-                out.append({
-                    "name": p.name,
-                    "size": stat.st_size,
-                    "modified": stat.st_mtime,
-                })
-            except Exception:
-                out.append({"name": p.name})
-    return sorted(out, key=lambda x: x.get("name", ""))
-
-
-@app.get("/runs/fs/{run_name}/performance")
-async def get_run_performance(run_name: str):
-    from pathlib import Path
-    base = Path(__file__).resolve().parents[1] / "pipeline_runs" / run_name
-    p = base / "performance_report.txt"
-    if not p.exists():
-        raise HTTPException(404, detail="performance report not found")
-    return {"content": p.read_text(encoding="utf-8", errors="ignore")}
 
 
 class ApplyValidationReq(BaseModel):

@@ -6,7 +6,6 @@ import pyarrow.parquet as pq
 import pyarrow as pa
 import json
 import logging
-from ..utils.utils import reduce_mem_usage
 from bootstrap_pipeline.bootstrap.target_discovery import WalkForwardTargetDiscovery
 from bootstrap_pipeline.utils.utils import reduce_mem_usage
 
@@ -103,7 +102,6 @@ def run(input_file: str, features_json_file: str, output_file: str, discovery_fi
         
         batch_df['adaptive_target'] = adaptive_targets
         
-        import pyarrow as pa
         table = pa.Table.from_pandas(batch_df)
         if writer is None:
             writer = pq.ParquetWriter(output_file, table.schema)

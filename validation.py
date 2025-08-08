@@ -15,7 +15,8 @@ def run_null_hypothesis_test(discovery, data_sample, target_col, feature_cols):
     test_disc = copy.deepcopy(discovery)
 
     shuffled = data_sample.copy()
-    shuffled[target_col] = np.random.permutation(shuffled[target_col].values)
+    rng = np.random.default_rng(42)
+    shuffled[target_col] = rng.permutation(shuffled[target_col].values)
 
     test_rows = shuffled.sample(n=min(500, len(shuffled)), random_state=42)
     for _, row in test_rows.iterrows():

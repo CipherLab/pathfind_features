@@ -1,8 +1,17 @@
 import * as React from 'react'
 import GlobalPickerModal from '../Wizard/GlobalPickerModal'
 
+interface TargetDiscoveryConfigCfg {
+  inputData?: string
+  smoke?: boolean
+  smokeEras?: number
+  smokeRows?: number
+  walkForward?: boolean
+  seed?: number
+}
+
 type Props = {
-  cfg: any
+  cfg: TargetDiscoveryConfigCfg
   onChange: (patch: any) => void
 }
 

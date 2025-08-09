@@ -38,6 +38,7 @@ export type NodeData = {
   kind: NodeKind
   title: string
   status: NodeStatus
+  statusText?: string
   // Lightweight config shared across types; extended per-kind via any for now
   config?: any
 }
@@ -74,6 +75,11 @@ function NodeCard({ data }: NodeProps<NodeData>) {
         </div>
         <StatusDot s={data.status} />
       </div>
+      {data.statusText && (
+        <div className="mt-1 text-xs text-slate-300" title={data.statusText}>
+          {data.statusText}
+        </div>
+      )}
       {data?.config?.summary && (
         <div
           className="mt-2 max-h-20 overflow-hidden text-ellipsis text-xs text-slate-300"
@@ -122,16 +128,14 @@ function Sidebar({
     }
   }, [selection?.id])
 
-  const updateData = useCallback(
-    (patch: any) => {
-      setCfg((prev: any) => {
-        const next = { ...prev, ...patch }
-        onUpdate(p => ({ ...p, config: next, status: 'configured' }))
-        return next
-      })
-    },
-    [onUpdate]
-  )
+  const updateData = useCallback((patch: any) => {
+    setCfg((prev: any) => {
+      const next = { ...prev, ...patch }
+      // configuring a node clears any stale status text
+      onUpdate(p => ({ ...p, config: next, status: 'configured', statusText: '' }))
+      return next
+    })
+  }, [onUpdate])
 
   if (!selection) {
     return (
@@ -144,7 +148,9 @@ function Sidebar({
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-700 p-3">
         <div className="text-sm font-semibold text-slate-100">{d.title}</div>
-        <div className="mt-1 text-xs text-slate-400">Status: {d.status}</div>
+        <div className="mt-1 text-xs text-slate-400">
+          Status: {d.status}{d.statusText ? ` - ${d.statusText}` : ''}
+        </div>
       </div>
       <div className="flex-1 overflow-auto p-3">
         {d.kind === 'target-discovery' && (
@@ -270,9 +276,7 @@ function validatePipeline(ns: Node<NodeData>[], es: Edge[]): string[] | null {
 }
 
 export default function BuilderPage() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(
-    []
-  )
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [selection, setSelection] = useState<Node<NodeData> | null>(null)
   const [progress, setProgress] = useState({ total: 0, completed: 0 })
@@ -301,7 +305,7 @@ export default function BuilderPage() {
         id,
         type: 'default',
         position: { x: 140 + nodes.length * 50, y: 100 + nodes.length * 20 },
-        data: { kind, title, status: 'idle', config: {} },
+        data: { kind, title, status: 'idle', statusText: '', config: {} },
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
       }
@@ -322,8 +326,8 @@ export default function BuilderPage() {
             if (downstream.includes(n.id) && n.data.kind === 'pathfinding') {
               const cfg = {
                 ...n.data.config,
-                [INHERIT_TARGETS_FROM_KEY]: src.id,
-                [TARGETS_JSON_KEY]: 'target_discovery.json',
+                inheritTargetsFrom: src.id,
+                targetsJson: 'target_discovery.json',
               }
               const status = n.data.status === 'idle' ? 'configured' : n.data.status
               return { ...n, data: { ...n.data, config: cfg, status } }
@@ -336,8 +340,8 @@ export default function BuilderPage() {
             if (downstream.includes(n.id) && n.data.kind === 'feature-engineering') {
               const cfg = {
                 ...n.data.config,
-                [INHERIT_RELATIONSHIPS_FROM]: src.id,
-                [RELATIONSHIPS_JSON]: 'relationships.json',
+                inheritRelationshipsFrom: src.id,
+                relationshipsJson: 'relationships.json',
               }
               const status = n.data.status === 'idle' ? 'configured' : n.data.status
               return { ...n, data: { ...n.data, config: cfg, status } }
@@ -359,7 +363,23 @@ export default function BuilderPage() {
       // mark running
       setNodes(ns =>
         ns.map(n =>
-          n.id === id ? { ...n, data: { ...n.data, status: 'running' as NodeStatus } } : n
+          n.id === id
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  status: 'running' as NodeStatus,
+                  statusText:
+                    data.kind === 'target-discovery'
+                      ? 'Running target discovery...'
+                      : data.kind === 'pathfinding'
+                      ? 'Exploring relationships...'
+                      : data.kind === 'feature-engineering'
+                      ? 'Brewing features...'
+                      : 'Working...',
+                },
+              }
+            : n
         )
       )
 
@@ -384,10 +404,26 @@ export default function BuilderPage() {
           await new Promise(res => setTimeout(res, 300))
         }
 
-        // mark complete
+        // mark complete and write a friendly status line
         setNodes(ns =>
           ns.map(n =>
-            n.id === id ? { ...n, data: { ...n.data, status: 'complete' as NodeStatus } } : n
+            n.id === id
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    status: 'complete' as NodeStatus,
+                    statusText:
+                      data.kind === 'target-discovery'
+                        ? '✅ Targets discovered'
+                        : data.kind === 'pathfinding'
+                        ? '✅ Relationships mapped'
+                        : data.kind === 'feature-engineering'
+                        ? '✅ Features generated'
+                        : '✅ Done',
+                  },
+                }
+              : n
           )
         )
 
@@ -395,10 +431,21 @@ export default function BuilderPage() {
         if (data.kind === 'target-discovery' || data.kind === 'pathfinding') {
           propagateArtifacts(node)
         }
-      } catch (e) {
+      } catch (e: any) {
+        const msg =
+          e && typeof e === 'object' && 'message' in e ? String(e.message) : 'Unknown error'
         setNodes(ns =>
           ns.map(n =>
-            n.id === id ? { ...n, data: { ...n.data, status: 'failed' as NodeStatus } } : n
+            n.id === id
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    status: 'failed' as NodeStatus,
+                    statusText: `❌ ${msg}`,
+                  },
+                }
+              : n
           )
         )
         throw e

@@ -16,8 +16,8 @@ function StatusDot({ s }: { s: NodeStatus }) {
   return <span className={`inline-block h-2.5 w-2.5 rounded-full ${cls[s]}`} />
 }
 
-export default function NodeCard(props: any) {
-  const { id, data } = props as { id: string; data: NodeData }
+export default function NodeCard(props: NodeProps<NodeData>) {
+  const { id, data } = props
   const { getNodes, getEdges } = useReactFlow()
   const icon =
     data.kind === 'data-source'

@@ -107,7 +107,7 @@ export default function NodeCard(props: NodeProps<NodeData>) {
           type="source"
           position={Position.Right}
           style={styleFor(cons.output.type)}
-          isValidConnection={conn => isValidConnection(conn as any, getNodes() as any, getEdges() as any)}
+          isValidConnection={conn => isValidConnection(conn, getNodes(), getEdges())}
         />
       )}
     </div>

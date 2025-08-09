@@ -27,7 +27,7 @@ export function isValidConnection(conn: Connection, ns: Node<NodeData>[], es: Ed
   if (inCount >= tCons.maxInputs) return false
 
   // Type compatibility via handle ids
-  const srcPayload: any = sCons.output?.type
+  const srcPayload: PayloadType | undefined = sCons.output?.type
   const targetHandleId = conn.targetHandle || ''
   const expected = tCons.inputs.find(i => i.id === targetHandleId)
   if (expected && srcPayload && expected.type !== srcPayload) return false

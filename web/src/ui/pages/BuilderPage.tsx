@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useCallback, useRef, useState } from 'react'
-import { ReactFlow, 
+import { ReactFlow,
   Background,
   BackgroundVariant,
   Controls,
@@ -14,6 +14,8 @@ import { ReactFlow,
   Handle,
   Position,
   NodeProps,
+  NodeTypes,
+  useReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import ParameterForm from '../components/Wizard/ParameterForm'
@@ -32,6 +34,12 @@ export type NodeData = {
   config?: any
 }
 
+const connectionOrder: NodeKind[] = ['data-source', 'target-discovery', 'pathfinding', 'feature-engineering', 'output']
+const allowsConnection = (a: NodeKind, b: NodeKind) => {
+  const idx = connectionOrder.indexOf(a)
+  return idx !== -1 && connectionOrder[idx + 1] === b
+}
+
 // Basic node renderer used for all nodes initially
 function StatusDot({ s }: { s: NodeStatus }){
   const cls: Record<NodeStatus, string> = {
@@ -45,6 +53,13 @@ function StatusDot({ s }: { s: NodeStatus }){
 }
 
 function NodeCard({ data }: NodeProps<Node<NodeData>>){
+  const { getNode } = useReactFlow<Node<NodeData>>()
+  const isValidConnection = useCallback((conn: Connection) => {
+    const src = getNode(conn.source as string)
+    const tgt = getNode(conn.target as string)
+    return !!(src && tgt && allowsConnection(src.data.kind, tgt.data.kind))
+  }, [getNode])
+
   const icon = data.kind === 'data-source' ? '📁'
     : data.kind === 'target-discovery' ? '🎯'
     : data.kind === 'pathfinding' ? '🔍'
@@ -52,7 +67,7 @@ function NodeCard({ data }: NodeProps<Node<NodeData>>){
     : '📊'
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 shadow-md text-slate-100 min-w-[160px]">
-  <Handle type="target" position={Position.Left} />
+  <Handle type="target" position={Position.Left} isValidConnection={isValidConnection} />
       <div className="flex items-center justify-between gap-2">
         <div className="font-semibold truncate" title={data.title}>{icon} {data.title}</div>
         <StatusDot s={data.status} />
@@ -60,7 +75,7 @@ function NodeCard({ data }: NodeProps<Node<NodeData>>){
       {data?.config?.summary && (
         <div className="mt-2 max-h-20 overflow-hidden text-ellipsis text-xs text-slate-300" title={data.config.summary}>{data.config.summary}</div>
       )}
-  <Handle type="source" position={Position.Right} />
+  <Handle type="source" position={Position.Right} isValidConnection={isValidConnection} />
     </div>
   )
 }
@@ -181,7 +196,13 @@ export default function BuilderPage(){
   const [selection, setSelection] = useState<Node<NodeData> | null>(null)
   const idRef = useRef(1)
 
-  const onConnect = useCallback((conn: Edge | Connection) => setEdges((eds) => addEdge({ ...conn, type: 'smoothstep' }, eds as any) as any), [])
+  const onConnect = useCallback((conn: Edge | Connection) => {
+    const source = nodes.find((n: Node<NodeData>) => n.id === conn.source)
+    const target = nodes.find((n: Node<NodeData>) => n.id === conn.target)
+    if (source && target && allowsConnection(source.data.kind, target.data.kind)) {
+      setEdges((eds) => addEdge({ ...conn, type: 'smoothstep', style: { stroke: '#16a34a' } }, eds as any) as any)
+    }
+  }, [nodes])
 
   const addNode = useCallback((kind: NodeKind) => {
     const id = `n${idRef.current++}`

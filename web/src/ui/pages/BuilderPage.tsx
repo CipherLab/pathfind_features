@@ -65,7 +65,7 @@ function NodeCard({ data }: NodeProps<Node<NodeData>>){
   )
 }
 
-const nodeTypes = { default: NodeCard as any }
+const nodeTypes: NodeTypes = { default: NodeCard }
 
 // Sidebar for configuration (reuses ParameterForm for now)
 function Sidebar({

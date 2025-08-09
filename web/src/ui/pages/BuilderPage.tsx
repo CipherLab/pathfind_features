@@ -336,8 +336,8 @@ export default function BuilderPage() {
             if (downstream.includes(n.id) && n.data.kind === 'feature-engineering') {
               const cfg = {
                 ...n.data.config,
-                inheritRelationshipsFrom: src.id,
-                relationshipsJson: 'relationships.json',
+                [INHERIT_RELATIONSHIPS_FROM]: src.id,
+                [RELATIONSHIPS_JSON]: 'relationships.json',
               }
               const status = n.data.status === 'idle' ? 'configured' : n.data.status
               return { ...n, data: { ...n.data, config: cfg, status } }

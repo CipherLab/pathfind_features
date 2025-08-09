@@ -189,8 +189,8 @@ export default function WizardPage(){
               inputData={inputData} setInputData={setInputData}
               featuresJson={featuresJson} setFeaturesJson={setFeaturesJson}
               runName={runName} setRunName={setRunName}
-              maxNew={mode==='phase2' ? 0 : maxNew} setMaxNew={mode==='phase2' ? ((()=>{}) as any) : setMaxNew}
-              disablePF={mode==='phase1' ? true : disablePF} setDisablePF={mode==='phase1' ? ((()=>{}) as any) : setDisablePF}
+              maxNew={mode==='phase2' ? 0 : maxNew} setMaxNew={mode==='phase2' ? noopSetMaxNew : setMaxNew}
+              disablePF={mode==='phase1' ? true : disablePF} setDisablePF={mode==='phase1' ? noopSetDisablePF : setDisablePF}
               pretty={pretty} setPretty={setPretty}
               smoke={smoke} setSmoke={setSmoke}
               smokeEras={smokeEras} setSmokeEras={setSmokeEras}

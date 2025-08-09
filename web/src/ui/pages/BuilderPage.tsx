@@ -271,9 +271,9 @@ function validatePipeline(ns: Node<NodeData>[], es: Edge[]): string[] | null {
 
 export default function BuilderPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(
-    ([] as unknown) as Node<NodeData>[]
+    []
   )
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(([] as unknown) as Edge[])
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [selection, setSelection] = useState<Node<NodeData> | null>(null)
   const [progress, setProgress] = useState({ total: 0, completed: 0 })
   const idRef = useRef(1)

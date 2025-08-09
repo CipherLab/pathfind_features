@@ -18,7 +18,6 @@ import {
   NodeTypes,
   useReactFlow,
 } from '@xyflow/react'
-import type { NodeTypes } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
 import TargetDiscoveryConfig from '../components/NodeConfig/TargetDiscoveryConfig'

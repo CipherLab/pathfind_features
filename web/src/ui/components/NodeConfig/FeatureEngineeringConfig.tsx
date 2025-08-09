@@ -1,6 +1,7 @@
 import * as React from 'react'
 
-interface FeatureEngineeringConfigObject {
+
+interface FeatureEngineeringNodeConfig {
   maxNew?: number
   strategy?: string
   naming?: string

@@ -71,32 +71,28 @@ export default function ArtifactPicker({ label, value, onChange, includeExts, st
   }, [standardOptions, options])
 
   return (
-    <label>
-      {label}
-      <div className="col">
-        <select
-          title={label}
-          value={allOptions.find(o => o.value === value)?.value || ''}
-          onChange={e => onChange(e.target.value)}
-        >
-          <option value="">(choose from suggestions)</option>
-          {allOptions.length > 0 && (
-            <optgroup label="Suggestions">
-              {allOptions.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </optgroup>
-          )}
-        </select>
-        <input
-          className="input mt4"
-          placeholder="Or type a custom path..."
-          value={value}
-          onChange={e => onChange(e.target.value)}
-        />
-        {loading && <div className="muted">Loading artifacts…</div>}
-        {error && <div className="error">{error}</div>}
-      </div>
+    <label className="flex flex-col gap-2">
+      <span className="text-sm font-medium">{label}</span>
+      <select
+        className="rounded-md border border-slate-600 bg-slate-800 p-2 text-sm"
+        title={label}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      >
+        <option value="">(choose from suggestions)</option>
+        {!valueInOptions && value && (
+          <option value={value}>{value}</option>
+        )}
+        {allOptions.length > 0 && (
+          <optgroup label="Suggestions">
+            {allOptions.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </optgroup>
+        )}
+      </select>
+      {loading && <div className="text-xs text-slate-400">Loading artifacts…</div>}
+      {error && <div className="text-xs text-red-500">{error}</div>}
     </label>
   )
 }

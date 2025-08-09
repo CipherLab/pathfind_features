@@ -1,8 +1,14 @@
 import * as React from 'react'
 
+interface FeatureEngineeringConfigObject {
+  maxNew?: number
+  strategy?: string
+  naming?: string
+}
+
 type Props = {
-  cfg: any
-  onChange: (patch: any) => void
+  cfg: FeatureEngineeringConfigObject
+  onChange: (patch: Partial<FeatureEngineeringConfigObject>) => void
 }
 
 export default function FeatureEngineeringConfig({ cfg, onChange }: Props) {

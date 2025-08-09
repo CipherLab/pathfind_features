@@ -1,8 +1,15 @@
 import * as React from 'react'
 
+type PathfindingConfigType = {
+  yolo?: boolean
+  featureLimit?: number
+  debug?: boolean
+  relationships?: number
+}
+
 type Props = {
-  cfg: any
-  onChange: (patch: any) => void
+  cfg: PathfindingConfigType
+  onChange: (patch: Partial<PathfindingConfigType>) => void
 }
 
 export default function PathfindingConfig({ cfg, onChange }: Props) {

@@ -29,7 +29,7 @@ import PipelineToolbar from '../components/Flow/PipelineToolbar'
 import { planLanes, snapXForLane, ExecutionLane } from '../components/Flow/lanes'
 import styles from './BuilderPage.module.css'
 
-const nodeTypes: NodeTypes = { appNode: NodeCard as any }
+const nodeTypes: NodeTypes = { appNode: NodeCard as React.FC<NodeProps<NodeData>> }
 
 export default function BuilderPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>([])

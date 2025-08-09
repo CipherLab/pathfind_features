@@ -139,7 +139,6 @@ function Sidebar({
       </div>
       <div className="border-t border-slate-700 p-3">
         <div className="row-between">
-          <button className="btn" onClick={() => onUpdate((p) => ({ ...p, config: cfg }))}>Save Config</button>
           <button className="btn btn-primary" onClick={onRun}>Run Node</button>
         </div>
       </div>

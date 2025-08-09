@@ -54,11 +54,10 @@ function StatusDot({ s }: { s: NodeStatus }){
 
 function NodeCard({ data }: NodeProps<Node<NodeData>>){
   const { getNode } = useReactFlow<Node<NodeData>>()
-  const isValidConnection = useCallback((conn: Connection) => {
-    const src = getNode(conn.source as string)
-    const tgt = getNode(conn.target as string)
-    return !!(src && tgt && allowsConnection(src.data.kind, tgt.data.kind))
-  }, [getNode])
+  const isValidConnection = useCallback(
+    (conn: Connection) => isConnectionValid(getNode, conn),
+    [getNode]
+  )
 
   const icon = data.kind === 'data-source' ? '📁'
     : data.kind === 'target-discovery' ? '🎯'

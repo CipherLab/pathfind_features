@@ -235,7 +235,7 @@ export default function BuilderPage(){
                   data: {
                     ...n.data,
                     status: 'running' as NodeStatus,
-                    statusText: 'Era 127/340, Sharpe: 0.847, ETA: 23min',
+                    statusText: 'Running target discovery...',
                   },
                 }
               : n,

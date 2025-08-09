@@ -6,6 +6,7 @@ import './ui/app.css'
 import DashboardPage from './ui/pages/DashboardPage'
 import WizardPage from './ui/pages/WizardPage'
 import RunDetailPage from './ui/pages/RunDetailPage'
+import BuilderPage from './ui/pages/BuilderPage'
 
 const router = createBrowserRouter([
   {
@@ -14,6 +15,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: 'wizard', element: <WizardPage /> },
+  { path: 'builder', element: <BuilderPage /> },
       { path: 'runs/:name', element: <RunDetailPage /> },
     ],
   },

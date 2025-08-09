@@ -11,6 +11,7 @@ export default function App(){
         <nav className="row gap8">
           <Link to="/">Dashboard</Link>
           <Link to="/wizard">New Run</Link>
+          <Link to="/builder">Visual Builder</Link>
         </nav>
       </header>
       <div className="mt8 muted">API: {API}</div>

@@ -616,7 +616,7 @@ async def plan_pipeline(req: PlanRequest):
     # Build adjacency and indegree
     node_ids = [n.id for n in req.nodes]
     id_set = set(node_ids)
-    adj: Dict[str, list[str]] = {i: [] for i in node_ids}
+    adj: Dict[str, List[str]] = {i: [] for i in node_ids}
     indeg: Dict[str, int] = {i: 0 for i in node_ids}
     for e in req.edges:
         if e.source in id_set and e.target in id_set:

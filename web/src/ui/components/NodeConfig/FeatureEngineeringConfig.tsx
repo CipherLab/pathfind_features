@@ -7,7 +7,6 @@ interface FeatureEngineeringNodeConfig {
   naming?: string
 }
 
-type FeatureEngineeringConfigObject = FeatureEngineeringNodeConfig;
 type Props = {
   cfg: FeatureEngineeringNodeConfig
   onChange: (patch: Partial<FeatureEngineeringNodeConfig>) => void

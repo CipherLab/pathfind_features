@@ -14,6 +14,7 @@ import { ReactFlow,
   Handle,
   Position,
   NodeProps,
+  NodeTypes,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import ParameterForm from '../components/Wizard/ParameterForm'
@@ -28,6 +29,7 @@ export type NodeData = {
   kind: NodeKind
   title: string
   status: NodeStatus
+  statusText?: string
   // Lightweight config shared across types; extended per-kind via any for now
   config?: any
 }
@@ -57,6 +59,9 @@ function NodeCard({ data }: NodeProps<Node<NodeData>>){
         <div className="font-semibold truncate" title={data.title}>{icon} {data.title}</div>
         <StatusDot s={data.status} />
       </div>
+      {data.statusText && (
+        <div className="mt-1 text-xs text-slate-300" title={data.statusText}>{data.statusText}</div>
+      )}
       {data?.config?.summary && (
         <div className="mt-2 max-h-20 overflow-hidden text-ellipsis text-xs text-slate-300" title={data.config.summary}>{data.config.summary}</div>
       )}
@@ -103,7 +108,7 @@ function Sidebar({
   const updateData = useCallback((patch: any) => {
     setCfg((prev: any) => {
       const next = { ...prev, ...patch }
-      onUpdate((p) => ({ ...p, config: next, status: 'configured' }))
+      onUpdate((p) => ({ ...p, config: next, status: 'configured', statusText: '' }))
       return next
     })
   }, [onUpdate])
@@ -119,7 +124,7 @@ function Sidebar({
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-700 p-3">
         <div className="text-sm font-semibold text-slate-100">{d.title}</div>
-        <div className="mt-1 text-xs text-slate-400">Status: {d.status}</div>
+        <div className="mt-1 text-xs text-slate-400">Status: {d.status}{d.statusText ? ` - ${d.statusText}` : ''}</div>
       </div>
       <div className="flex-1 overflow-auto p-3">
         {/* For Phase 1 we reuse ParameterForm directly. Later this will branch by kind. */}
@@ -194,7 +199,7 @@ export default function BuilderPage(){
       id,
       type: 'default',
       position: { x: 140 + nodes.length * 50, y: 100 + nodes.length * 20 },
-      data: { kind, title, status: 'idle', config: {} },
+      data: { kind, title, status: 'idle', statusText: '', config: {} },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
     }
@@ -222,11 +227,50 @@ export default function BuilderPage(){
           smoke_feature_limit: cfg.smokeFeat,
           seed: cfg.seed ?? 42,
         }
-  setNodes((ns: Node<NodeData>[])=> ns.map((n: Node<NodeData>)=> n.id===selection.id? { ...n, data: { ...n.data, status: 'running' as NodeStatus } }: n))
+        setNodes((ns: Node<NodeData>[]) =>
+          ns.map((n: Node<NodeData>) =>
+            n.id === selection.id
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    status: 'running' as NodeStatus,
+                    statusText: 'Era 127/340, Sharpe: 0.847, ETA: 23min',
+                  },
+                }
+              : n,
+          ),
+        )
         await jpost('/runs', payload)
-  setNodes((ns: Node<NodeData>[])=> ns.map((n: Node<NodeData>)=> n.id===selection.id? { ...n, data: { ...n.data, status: 'complete' as NodeStatus } }: n))
+        setNodes((ns: Node<NodeData>[]) =>
+          ns.map((n: Node<NodeData>) =>
+            n.id === selection.id
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    status: 'complete' as NodeStatus,
+                    statusText: '✅ Found 23 relationships, Sharpe: 0.891',
+                  },
+                }
+              : n,
+          ),
+        )
       }catch{
-  setNodes((ns: Node<NodeData>[])=> ns.map((n: Node<NodeData>)=> n.id===selection.id? { ...n, data: { ...n.data, status: 'failed' as NodeStatus } }: n))
+        setNodes((ns: Node<NodeData>[]) =>
+          ns.map((n: Node<NodeData>) =>
+            n.id === selection.id
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    status: 'failed' as NodeStatus,
+                    statusText: '❌ Out of memory at era 156 (helpful error message)',
+                  },
+                }
+              : n,
+          ),
+        )
       }
     }
   }, [selection])

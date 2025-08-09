@@ -3,10 +3,11 @@ import React from 'react'
 type Props = {
   onRunPipeline: () => void
   onClear: () => void
+  onAutoArrange: () => void
   progress: { total: number; completed: number }
 }
 
-export default function PipelineToolbar({ onRunPipeline, onClear, progress }: Props) {
+export default function PipelineToolbar({ onRunPipeline, onClear, onAutoArrange, progress }: Props) {
   const pct = progress.total ? Math.round((progress.completed / progress.total) * 100) : 0
   return (
     <div className="flex items-center gap-2 border-b border-slate-700 bg-slate-900/60 p-2">
@@ -15,6 +16,9 @@ export default function PipelineToolbar({ onRunPipeline, onClear, progress }: Pr
       </button>
       <button className="btn" onClick={onClear}>
         Clear
+      </button>
+      <button className="btn" onClick={onAutoArrange}>
+        Auto-arrange to lanes
       </button>
       {progress.total > 0 && (
         <div className="flex items-center gap-2 flex-1">

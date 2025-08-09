@@ -385,6 +385,15 @@ export default function BuilderPage() {
     setSelection(null)
   }, [setNodes, setEdges])
 
+  const onAutoArrange = useCallback(() => {
+    setNodes(ns =>
+      ns.map(n => {
+        const idx = laneIndexById.get(n.id)
+        return idx != null ? { ...n, position: { x: snapXForLane(idx), y: n.position.y } } : n
+      })
+    )
+  }, [setNodes, laneIndexById])
+
   // DnD handlers
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
@@ -414,7 +423,7 @@ export default function BuilderPage() {
         <NodePalette onAdd={addNode} />
       </div>
       <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-slate-700 bg-slate-900/40">
-        <PipelineToolbar onRunPipeline={onRunPipeline} onClear={onClear} progress={progress} />
+        <PipelineToolbar onRunPipeline={onRunPipeline} onClear={onClear} onAutoArrange={onAutoArrange} progress={progress} />
         <div className="relative min-h-0 flex-1" ref={wrapperRef}>
           <ReactFlow<Node<NodeData>, Edge>
             nodes={nodes}

@@ -8,8 +8,8 @@ interface FeatureEngineeringNodeConfig {
 }
 
 type Props = {
-  cfg: FeatureEngineeringConfigObject
-  onChange: (patch: Partial<FeatureEngineeringConfigObject>) => void
+  cfg: FeatureEngineeringNodeConfig
+  onChange: (patch: Partial<FeatureEngineeringNodeConfig>) => void
 }
 
 export default function FeatureEngineeringConfig({ cfg, onChange }: Props) {

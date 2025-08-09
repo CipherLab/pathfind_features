@@ -322,8 +322,8 @@ export default function BuilderPage() {
             if (downstream.includes(n.id) && n.data.kind === 'pathfinding') {
               const cfg = {
                 ...n.data.config,
-                inheritTargetsFrom: src.id,
-                targetsJson: 'target_discovery.json',
+                [INHERIT_TARGETS_FROM_KEY]: src.id,
+                [TARGETS_JSON_KEY]: 'target_discovery.json',
               }
               const status = n.data.status === 'idle' ? 'configured' : n.data.status
               return { ...n, data: { ...n.data, config: cfg, status } }

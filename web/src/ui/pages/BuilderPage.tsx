@@ -15,14 +15,11 @@ import {
   Handle,
   Position,
   NodeProps,
-  NodeTypes,
   useReactFlow,
 } from '@xyflow/react'
+import type { NodeTypes, ReactFlowInstance } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-
-import TargetDiscoveryConfig from '../components/NodeConfig/TargetDiscoveryConfig'
-import PathfindingConfig from '../components/NodeConfig/PathfindingConfig'
-import FeatureEngineeringConfig from '../components/NodeConfig/FeatureEngineeringConfig'
+import GlobalPickerModal from '../components/Wizard/GlobalPickerModal'
 import { jpost } from '../lib/api'
 
 // Types
@@ -44,7 +41,13 @@ export type NodeData = {
   config?: any
 }
 
-const connectionOrder: NodeKind[] = ['data-source', 'target-discovery', 'pathfinding', 'feature-engineering', 'output']
+const connectionOrder: NodeKind[] = [
+  'data-source',
+  'target-discovery',
+  'pathfinding',
+  'feature-engineering',
+  'output',
+]
 const allowsConnection = (a: NodeKind, b: NodeKind) => {
   const idx = connectionOrder.indexOf(a)
   return idx !== -1 && connectionOrder[idx + 1] === b
@@ -73,7 +76,6 @@ function StatusDot({ s }: { s: NodeStatus }) {
   return <span className={`inline-block h-2.5 w-2.5 rounded-full ${cls[s]}`} />
 }
 
-
 function NodeCard({ data }: NodeProps<NodeData>) {
   const { getNodes } = useReactFlow<NodeData>()
   const icon =
@@ -87,7 +89,7 @@ function NodeCard({ data }: NodeProps<NodeData>) {
       ? '⚗️'
       : '📊'
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 shadow-md text-slate-100 min-w-[160px]">
+    <div className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 shadow-md text-slate-100 min-w-[160px] select-none hover:ring-1 hover:ring-indigo-400/40">
       <Handle type="target" position={Position.Left} />
       <div className="flex items-center justify-between gap-2">
         <div className="font-semibold truncate" title={data.title}>
@@ -117,7 +119,7 @@ function NodeCard({ data }: NodeProps<NodeData>) {
   )
 }
 
-const nodeTypes: NodeTypes = { default: NodeCard }
+const nodeTypes: NodeTypes = { appNode: NodeCard }
 
 // Sidebar for configuration (node-specific panels)
 function Sidebar({
@@ -129,7 +131,7 @@ function Sidebar({
   onUpdate: (updater: (prev: NodeData) => NodeData) => void
   onRun: () => void
 }) {
-  // Shared config shim; we reuse ParameterForm to edit common pipeline params
+  // Shared config shim
   const [cfg, setCfg] = useState<any>(() => ({
     inputData: 'v5.0/train.parquet',
     featuresJson: 'v5.0/features.json',
@@ -146,25 +148,267 @@ function Sidebar({
 
   React.useEffect(() => {
     if (!selection) return
-    // Load selection config into form if it exists
     if (selection.data?.config) {
       setCfg((p: any) => ({ ...p, ...selection.data.config }))
     }
   }, [selection?.id])
 
-  const updateData = useCallback((patch: any) => {
-    setCfg((prev: any) => {
-      const next = { ...prev, ...patch }
-      // configuring a node clears any stale status text
-      onUpdate(p => ({ ...p, config: next, status: 'configured', statusText: '' }))
-      return next
-    })
-  }, [onUpdate])
+  const updateData = useCallback(
+    (patch: any) => {
+      setCfg((prev: any) => {
+        const next = { ...prev, ...patch }
+        // configuring a node clears any stale status text
+        onUpdate(p => ({ ...p, config: next, status: 'configured', statusText: '' }))
+        return next
+      })
+    },
+    [onUpdate]
+  )
+
+  // Small node-specific panels
+  function DataPanel() {
+    const [open, setOpen] = useState<null | 'parquet'>(null)
+    return (
+      <div className="flex flex-col gap-4">
+        <div>
+          <div className="text-sm font-medium mb-2">Input data</div>
+          <button
+            className="btn w-full justify-start"
+            onClick={() => setOpen('parquet')}
+            title={cfg.inputData}
+          >
+            {cfg.inputData}
+          </button>
+          <div className="text-xs text-slate-400 mt-1">
+            Parquet file containing the training rows.
+          </div>
+        </div>
+        <label className="flex flex-col gap-2">
+          <span className="text-sm">Run name</span>
+          <input
+            className="input"
+            value={cfg.runName}
+            onChange={e => updateData({ runName: e.target.value })}
+          />
+        </label>
+        <label className="flex flex-col gap-2">
+          <span className="text-sm">Seed</span>
+          <input
+            className="input"
+            type="number"
+            value={cfg.seed}
+            onChange={e => updateData({ seed: parseInt(e.target.value || '0', 10) })}
+          />
+        </label>
+        {open && (
+          <GlobalPickerModal
+            mode="parquet"
+            onSelect={v => {
+              updateData({ inputData: v })
+              setOpen(null)
+            }}
+            onClose={() => setOpen(null)}
+          />
+        )}
+      </div>
+    )
+  }
+
+  function TargetsPanel() {
+    const [open, setOpen] = useState<null | 'features'>(null)
+    return (
+      <div className="flex flex-col gap-4">
+        <div>
+          <div className="text-sm font-medium mb-2">Features JSON</div>
+          <button
+            className="btn w-full justify-start"
+            onClick={() => setOpen('features')}
+            title={cfg.featuresJson}
+          >
+            {cfg.featuresJson}
+          </button>
+          <div className="text-xs text-slate-400 mt-1">
+            Feature definition file with feature_sets.medium.
+          </div>
+        </div>
+        <div>
+          <div className="text-sm font-medium mb-2">Performance Mode</div>
+          <div className="row items-center">
+            <label className="row-center">
+              <input
+                type="radio"
+                checked={!cfg.smoke}
+                onChange={() => updateData({ smoke: false })}
+              />{' '}
+              Full Run
+            </label>
+            <label className="row-center">
+              <input
+                type="radio"
+                checked={cfg.smoke}
+                onChange={() => updateData({ smoke: true })}
+              />{' '}
+              Quick Test
+            </label>
+          </div>
+          {cfg.smoke && (
+            <div className="grid grid-cols-3 gap-2 mt-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs">Eras</span>
+                <input
+                  className="input"
+                  type="number"
+                  value={cfg.smokeEras}
+                  onChange={e =>
+                    updateData({ smokeEras: parseInt(e.target.value || '0', 10) })
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs">Rows</span>
+                <input
+                  className="input"
+                  type="number"
+                  value={cfg.smokeRows}
+                  onChange={e =>
+                    updateData({ smokeRows: parseInt(e.target.value || '0', 10) })
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs">Feature cap</span>
+                <input
+                  className="input"
+                  type="number"
+                  value={cfg.smokeFeat}
+                  onChange={e =>
+                    updateData({ smokeFeat: parseInt(e.target.value || '0', 10) })
+                  }
+                />
+              </label>
+            </div>
+          )}
+        </div>
+        <label className="row-center">
+          <input
+            type="checkbox"
+            checked={cfg.pretty}
+            onChange={e => updateData({ pretty: e.target.checked })}
+          />{' '}
+          Pretty output
+        </label>
+        {open && (
+          <GlobalPickerModal
+            mode="features"
+            onSelect={v => {
+              updateData({ featuresJson: v })
+              setOpen(null)
+            }}
+            onClose={() => setOpen(null)}
+          />
+        )}
+      </div>
+    )
+  }
+
+  function PathfindPanel() {
+    return (
+      <div className="flex flex-col gap-4">
+        <div>
+          <div className="row-between">
+            <span className="text-sm font-medium">Max new features</span>
+            <span className="text-xs rounded bg-indigo-900/50 px-2 py-0.5">{cfg.maxNew}</span>
+          </div>
+          <input
+            aria-label="Max new features"
+            title="Max new features"
+            type="range"
+            min={0}
+            max={60}
+            step={1}
+            value={cfg.maxNew}
+            onChange={e => updateData({ maxNew: parseInt(e.target.value, 10) })}
+          />
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-sm">Feature cap (for PF)</span>
+          <input
+            className="input"
+            type="number"
+            value={cfg.smokeFeat}
+            onChange={e => updateData({ smokeFeat: parseInt(e.target.value || '0', 10) })}
+          />
+        </label>
+        <label className="row-center">
+          <input
+            type="checkbox"
+            checked={cfg.disablePF}
+            onChange={e => updateData({ disablePF: e.target.checked })}
+          />{' '}
+          Disable pathfinding
+        </label>
+        <label className="row-center">
+          <input
+            type="checkbox"
+            checked={cfg.pretty}
+            onChange={e => updateData({ pretty: e.target.checked })}
+          />{' '}
+          Pretty output
+        </label>
+      </div>
+    )
+  }
+
+  function FeaturesPanel() {
+    return (
+      <div className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1">
+          <span className="text-sm">Max new engineered features</span>
+          <input
+            className="input"
+            type="number"
+            value={cfg.maxNew}
+            onChange={e => updateData({ maxNew: parseInt(e.target.value || '0', 10) })}
+          />
+        </label>
+        <label className="row-center">
+          <input
+            type="checkbox"
+            checked={cfg.pretty}
+            onChange={e => updateData({ pretty: e.target.checked })}
+          />{' '}
+          Pretty output
+        </label>
+      </div>
+    )
+  }
+
+  function OutputPanel() {
+    return (
+      <div className="flex flex-col gap-4">
+        <label className="row-center">
+          <input
+            type="checkbox"
+            checked={cfg.pretty}
+            onChange={e => updateData({ pretty: e.target.checked })}
+          />{' '}
+          Pretty output
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-sm">Seed</span>
+          <input
+            className="input"
+            type="number"
+            value={cfg.seed}
+            onChange={e => updateData({ seed: parseInt(e.target.value || '0', 10) })}
+          />
+        </label>
+      </div>
+    )
+  }
 
   if (!selection) {
-    return (
-      <div className="h-full p-3 text-sm text-slate-300">Select a node to configure it.</div>
-    )
+    return <div className="h-full p-3 text-sm text-slate-300">Select a node to configure it.</div>
   }
 
   const d = selection.data
@@ -173,22 +417,16 @@ function Sidebar({
       <div className="border-b border-slate-700 p-3">
         <div className="text-sm font-semibold text-slate-100">{d.title}</div>
         <div className="mt-1 text-xs text-slate-400">
-          Status: {d.status}{d.statusText ? ` - ${d.statusText}` : ''}
+          Status: {d.status}
+          {d.statusText ? ` - ${d.statusText}` : ''}
         </div>
       </div>
       <div className="flex-1 overflow-auto p-3">
-        {d.kind === 'target-discovery' && (
-          <TargetDiscoveryConfig cfg={cfg} onChange={updateData} />
-        )}
-        {d.kind === 'pathfinding' && <PathfindingConfig cfg={cfg} onChange={updateData} />}
-        {d.kind === 'feature-engineering' && (
-          <FeatureEngineeringConfig cfg={cfg} onChange={updateData} />
-        )}
-        {d.kind !== 'target-discovery' &&
-          d.kind !== 'pathfinding' &&
-          d.kind !== 'feature-engineering' && (
-            <div className="text-sm text-slate-300">No configuration available.</div>
-          )}
+        {selection.data.kind === 'data-source' && <DataPanel />}
+        {selection.data.kind === 'target-discovery' && <TargetsPanel />}
+        {selection.data.kind === 'pathfinding' && <PathfindPanel />}
+        {selection.data.kind === 'feature-engineering' && <FeaturesPanel />}
+        {selection.data.kind === 'output' && <OutputPanel />}
       </div>
       <div className="border-t border-slate-700 p-3">
         <div className="row-between">
@@ -213,9 +451,23 @@ function NodePalette({ onAdd }: { onAdd: (kind: NodeKind) => void }) {
     <div className="flex flex-col gap-2 p-2">
       <div className="text-xs font-semibold text-slate-300">Palette</div>
       {items.map(it => (
-        <button key={it.kind} className="btn" onClick={() => onAdd(it.kind)}>
+        <div
+          key={it.kind}
+          className="btn cursor-grab active:cursor-grabbing"
+          draggable
+          onDragStart={e => {
+            e.dataTransfer.setData('application/reactflow', it.kind)
+            e.dataTransfer.effectAllowed = 'move'
+          }}
+          onDoubleClick={() => onAdd(it.kind)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={e => {
+            if (e.key === 'Enter') onAdd(it.kind)
+          }}
+        >
           <span className="w-6 text-center">{it.icon}</span> {it.label}
-        </button>
+        </div>
       ))}
     </div>
   )
@@ -305,18 +557,22 @@ export default function BuilderPage() {
   const [selection, setSelection] = useState<Node<NodeData> | null>(null)
   const [progress, setProgress] = useState({ total: 0, completed: 0 })
   const idRef = useRef(1)
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const [rf, setRf] = useState<ReactFlowInstance<Node<NodeData>, Edge> | null>(null)
 
-  const onConnect = useCallback((conn: Edge | Connection) => {
-    const source = nodes.find((n: Node<NodeData>) => n.id === conn.source)
-    const target = nodes.find((n: Node<NodeData>) => n.id === conn.target)
-    if (source && target && allowsConnection(source.data.kind, target.data.kind)) {
-      setEdges((eds) => addEdge({ ...conn, type: 'smoothstep', style: { stroke: '#16a34a' } }, eds as any) as any)
-    }
-  }, [nodes])
-
+  const onConnect = useCallback(
+    (conn: Edge | Connection) => {
+      const source = nodes.find((n: Node<NodeData>) => n.id === conn.source)
+      const target = nodes.find((n: Node<NodeData>) => n.id === conn.target)
+      if (source && target && allowsConnection(source.data.kind, target.data.kind)) {
+        setEdges(eds => addEdge({ ...conn, type: 'smoothstep', style: { stroke: '#16a34a' } }, eds as any) as any)
+      }
+    },
+    [nodes, setEdges]
+  )
 
   const addNode = useCallback(
-    (kind: NodeKind) => {
+    (kind: NodeKind, position?: { x: number; y: number }) => {
       const id = `n${idRef.current++}`
       const title =
         kind === 'data-source'
@@ -330,8 +586,8 @@ export default function BuilderPage() {
           : 'Output'
       const n: Node<NodeData> = {
         id,
-        type: 'default',
-        position: { x: 140 + nodes.length * 50, y: 100 + nodes.length * 20 },
+        type: 'appNode',
+        position: position ?? { x: 140 + nodes.length * 50, y: 100 + nodes.length * 20 },
         data: { kind, title, status: 'idle', statusText: '', config: {} },
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
@@ -522,28 +778,42 @@ export default function BuilderPage() {
     setSelection(null)
   }, [setNodes, setEdges])
 
+  // DnD handlers
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+  }, [])
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault()
+      const kind = event.dataTransfer.getData('application/reactflow') as NodeKind
+      if (!kind || !rf) return
+      const pos = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      addNode(kind, pos)
+    },
+    [rf, addNode]
+  )
+
   return (
-    <div className="flex h-[calc(100vh-140px)] gap-2">
-      <div className="w-48 shrink-0">
+    <div className="flex h-[calc(100vh-120px)] gap-2">
+      <div className="w-56 shrink-0">
         <NodePalette onAdd={addNode} />
       </div>
       <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-slate-700 bg-slate-900/40">
-        <PipelineToolbar
-          onRunPipeline={onRunPipeline}
-          onClear={onClear}
-          progress={progress}
-        />
-        <div className="relative min-h-0 flex-1">
-          <ReactFlow
+        <PipelineToolbar onRunPipeline={onRunPipeline} onClear={onClear} progress={progress} />
+        <div className="relative min-h-0 flex-1" ref={wrapperRef}>
+          <ReactFlow<Node<NodeData>, Edge>
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             nodeTypes={nodeTypes}
-            onNodeClick={(_evt: React.MouseEvent, n: Node) =>
-              setSelection(n as Node<NodeData>)
-            }
+            onNodeClick={(_evt: React.MouseEvent, n: Node<NodeData>) => setSelection(n)}
+            onInit={setRf}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
             fitView
           >
             <Background variant={BackgroundVariant.Dots} gap={16} size={1} />

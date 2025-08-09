@@ -625,7 +625,7 @@ async def plan_pipeline(req: PlanRequest):
 
     # Kahn topo
     q = [i for i, d in indeg.items() if d == 0]
-    order: list[str] = []
+    order: List[str] = []
     while q:
         cur = q.pop(0)
         order.append(cur)

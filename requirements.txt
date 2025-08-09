@@ -4,10 +4,6 @@ pyarrow
 lightgbm
 scikit-learn
 scipy
-streamlit
-graphviz
-streamlit-aggrid
-altair
 fastapi
 uvicorn[standard]
 pydantic

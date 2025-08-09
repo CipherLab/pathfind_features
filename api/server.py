@@ -2,7 +2,8 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, Any, Dict
+from pydantic import Field
+from typing import Optional, Any, Dict, List
 from pathlib import Path
 import os
 from math import ceil
@@ -62,6 +63,33 @@ class PreflightReq(BaseModel):
 
 class InspectReq(BaseModel):
     path: str
+
+
+# ===== Pipeline Planning (lanes + topo) =====
+class PlanNode(BaseModel):
+    id: str = Field(..., description="Node ID")
+    kind: Optional[str] = Field(None, description="Node kind (optional for now)")
+
+
+class PlanEdge(BaseModel):
+    source: str
+    target: str
+
+
+class PlanRequest(BaseModel):
+    nodes: List[PlanNode]
+    edges: List[PlanEdge]
+
+
+class LaneModel(BaseModel):
+    index: int
+    nodes: List[str]
+
+
+class PlanResponse(BaseModel):
+    lanes: List[LaneModel]
+    order: List[str]
+    has_cycle: bool
 
 @app.get("/health")
 async def health():
@@ -581,6 +609,47 @@ async def inspect(req: InspectReq):
     else:
         out.update({"type": "file"})
     return out
+
+
+@app.post("/pipeline/plan", response_model=PlanResponse)
+async def plan_pipeline(req: PlanRequest):
+    # Build adjacency and indegree
+    node_ids = [n.id for n in req.nodes]
+    id_set = set(node_ids)
+    adj: Dict[str, list[str]] = {i: [] for i in node_ids}
+    indeg: Dict[str, int] = {i: 0 for i in node_ids}
+    for e in req.edges:
+        if e.source in id_set and e.target in id_set:
+            adj[e.source].append(e.target)
+            indeg[e.target] += 1
+
+    # Kahn topo
+    q = [i for i, d in indeg.items() if d == 0]
+    order: list[str] = []
+    while q:
+        cur = q.pop(0)
+        order.append(cur)
+        for v in adj.get(cur, []):
+            indeg[v] -= 1
+            if indeg[v] == 0:
+                q.append(v)
+    has_cycle = len(order) != len(node_ids)
+
+    # Lane assignment via longest-distance from sources
+    dist: Dict[str, int] = {i: 0 for i in node_ids}
+    # If cycle, we still try to assign lanes on available sequence
+    for u in order:
+        for v in adj.get(u, []):
+            dist[v] = max(dist[v], dist[u] + 1)
+
+    # Group into lanes
+    lanes_map: Dict[int, list[str]] = {}
+    for nid in node_ids:
+        idx = int(dist.get(nid, 0))
+        lanes_map.setdefault(idx, []).append(nid)
+    lanes = [LaneModel(index=i, nodes=sorted(lanes_map[i])) for i in sorted(lanes_map.keys())]
+
+    return PlanResponse(lanes=lanes, order=order, has_cycle=has_cycle)
 
 
 class ApplyValidationReq(BaseModel):

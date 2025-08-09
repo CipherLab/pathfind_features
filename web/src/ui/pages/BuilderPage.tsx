@@ -26,6 +26,8 @@ import NodeCard from '../components/Flow/NodeCard'
 import Sidebar from '../components/Flow/Sidebar'
 import NodePalette from '../components/Flow/NodePalette'
 import PipelineToolbar from '../components/Flow/PipelineToolbar'
+import { planLanes, snapXForLane, ExecutionLane } from '../components/Flow/lanes'
+import styles from './BuilderPage.module.css'
 
 const nodeTypes: NodeTypes = { appNode: NodeCard as any }
 
@@ -37,6 +39,12 @@ export default function BuilderPage() {
   const idRef = useRef(1)
   const wrapperRef = useRef<HTMLDivElement | null>(null)
   const [rf, setRf] = useState<ReactFlowInstance<Node<NodeData>, Edge> | null>(null)
+  const [lanes, setLanes] = useState<ExecutionLane[]>([])
+  const laneIndexById = React.useMemo(() => {
+    const m = new Map<string, number>()
+    lanes.forEach(l => l.nodes.forEach(id => m.set(id, l.index)))
+    return m
+  }, [lanes])
 
   // Helper to pretty edge coloring and labels
   const edgeVisualsFor = (srcKind: NodeKind): { stroke: string; label: string; labelColor: string } => {
@@ -101,6 +109,17 @@ export default function BuilderPage() {
   )
 
   // Recompute blocked states when graph changes
+  React.useEffect(() => {
+    // update lane plan whenever graph changes
+    ;(async () => {
+      if (nodes.length === 0) { setLanes([]); return }
+      try {
+        const plan = await planLanes(nodes, edges)
+        setLanes(plan.lanes)
+      } catch {}
+    })()
+  }, [nodes, edges])
+
   React.useEffect(() => {
     setNodes((ns: Node<NodeData>[]) => {
       const nodeMap = new Map(ns.map(n => [n.id, n]))
@@ -311,18 +330,50 @@ export default function BuilderPage() {
   )
 
   const onRunPipeline = useCallback(async () => {
+    // Validate graph acyclicity and configuration
     const order = validatePipeline(nodes, edges)
     if (!order) return
-    setProgress({ total: order.length, completed: 0 })
-    const map = new Map(nodes.map(n => [n.id, n]))
-    for (const id of order) {
-      const node = map.get(id)
-      if (!node) continue
-      try {
-        await runNode(node)
-        setProgress(p => ({ total: p.total, completed: p.completed + 1 }))
-      } catch {
-        alert(`Node "${node.data.title}" failed. Pipeline stopped.`)
+    // Plan lanes via backend (also returns topo order)
+    let plan
+    try {
+      plan = await planLanes(nodes, edges)
+    } catch (e) {
+      alert('Failed to plan lanes.');
+      return
+    }
+    if (plan.hasCycle) {
+      alert('Pipeline has cycles; fix connections before running.')
+      return
+    }
+    const laneSeq = plan.lanes.sort((a, b) => a.index - b.index)
+    const nodeMap = new Map(nodes.map(n => [n.id, n]))
+    const total = nodes.length
+    let completed = 0
+    setProgress({ total, completed })
+    for (const lane of laneSeq) {
+      // Run all nodes in this lane concurrently
+      const runPromises = lane.nodes.map(id => {
+        const node = nodeMap.get(id)
+        return node ? runNode(node) : Promise.resolve()
+      })
+      const results = await Promise.allSettled(runPromises)
+      const failures = results.filter(r => r.status === 'rejected')
+      completed += results.length - failures.length
+      setProgress({ total, completed })
+      if (failures.length > 0) {
+        // Block downstream lanes visually
+        const thisLaneIdx = lane.index
+        setNodes(ns => {
+          const blockIds = laneSeq
+            .filter(l => l.index > thisLaneIdx)
+            .flatMap(l => l.nodes)
+          return ns.map(n =>
+            blockIds.includes(n.id) && n.data.status !== 'complete'
+              ? { ...n, data: { ...n.data, status: 'blocked', statusText: 'Upstream lane failed' } }
+              : n
+          )
+        })
+        alert(`Lane ${thisLaneIdx} failed; stopping pipeline.`)
         break
       }
     }
@@ -345,10 +396,16 @@ export default function BuilderPage() {
       event.preventDefault()
       const kind = event.dataTransfer.getData('application/reactflow') as NodeKind
       if (!kind || !rf) return
-      const pos = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      let pos = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      // snap X to closest lane if known
+      if (lanes.length > 0) {
+        // Choose lane by kind heuristics if no edges yet
+        const desiredIdx = kind === 'data-source' ? 0 : kind === 'target-discovery' ? 1 : kind === 'pathfinding' ? 2 : kind === 'feature-engineering' ? 3 : 4
+        pos = { x: snapXForLane(Math.min(desiredIdx, Math.max(0, lanes.length - 1))), y: pos.y }
+      }
       addNode(kind, pos)
     },
-    [rf, addNode]
+    [rf, addNode, lanes]
   )
 
   return (
@@ -370,12 +427,20 @@ export default function BuilderPage() {
             onInit={setRf}
             onDrop={onDrop}
             onDragOver={onDragOver}
+            onNodeDragStop={(_e, nd) => {
+              // Snap dragged node X to its planned lane if available
+              const idx = laneIndexById.get(nd.id)
+              if (idx == null) return
+              setNodes(ns => ns.map(n => (n.id === nd.id ? { ...n, position: { x: snapXForLane(idx), y: n.position.y } } : n)))
+            }}
             fitView
           >
             <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
             <MiniMap pannable zoomable />
             <Controls />
           </ReactFlow>
+          {/* Lane grid overlay */}
+          {lanes.length > 0 && <div className={styles.laneGrid} />}
         </div>
       </div>
       <div className="w-[420px] shrink-0 rounded-lg border border-slate-700 bg-slate-900/60">

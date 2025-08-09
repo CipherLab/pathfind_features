@@ -15,6 +15,8 @@ import {
   Handle,
   Position,
   NodeProps,
+  NodeTypes,
+  useReactFlow,
 } from '@xyflow/react'
 import type { NodeTypes } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -43,6 +45,12 @@ export type NodeData = {
   config?: any
 }
 
+const connectionOrder: NodeKind[] = ['data-source', 'target-discovery', 'pathfinding', 'feature-engineering', 'output']
+const allowsConnection = (a: NodeKind, b: NodeKind) => {
+  const idx = connectionOrder.indexOf(a)
+  return idx !== -1 && connectionOrder[idx + 1] === b
+}
+
 // Basic node renderer used for all nodes initially
 function StatusDot({ s }: { s: NodeStatus }) {
   const cls: Record<NodeStatus, string> = {
@@ -54,6 +62,7 @@ function StatusDot({ s }: { s: NodeStatus }) {
   }
   return <span className={`inline-block h-2.5 w-2.5 rounded-full ${cls[s]}`} />
 }
+
 
 function NodeCard({ data }: NodeProps<NodeData>) {
   const icon =
@@ -88,7 +97,7 @@ function NodeCard({ data }: NodeProps<NodeData>) {
           {data.config.summary}
         </div>
       )}
-      <Handle type="source" position={Position.Right} />
+  <Handle type="source" position={Position.Right} isValidConnection={isValidConnection} />
     </div>
   )
 }
@@ -282,11 +291,14 @@ export default function BuilderPage() {
   const [progress, setProgress] = useState({ total: 0, completed: 0 })
   const idRef = useRef(1)
 
-  const onConnect = useCallback(
-    (conn: Edge | Connection) =>
-      setEdges(eds => addEdge({ ...conn, type: 'smoothstep' }, eds as any) as any),
-    [setEdges]
-  )
+  const onConnect = useCallback((conn: Edge | Connection) => {
+    const source = nodes.find((n: Node<NodeData>) => n.id === conn.source)
+    const target = nodes.find((n: Node<NodeData>) => n.id === conn.target)
+    if (source && target && allowsConnection(source.data.kind, target.data.kind)) {
+      setEdges((eds) => addEdge({ ...conn, type: 'smoothstep', style: { stroke: '#16a34a' } }, eds as any) as any)
+    }
+  }, [nodes])
+
 
   const addNode = useCallback(
     (kind: NodeKind) => {

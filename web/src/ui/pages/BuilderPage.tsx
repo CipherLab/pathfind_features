@@ -96,7 +96,7 @@ function NodeCard({ data }: NodeProps<NodeData>) {
           {data.config.summary}
         </div>
       )}
-  <Handle type="source" position={Position.Right} isValidConnection={isValidConnection} />
+      <Handle type="source" position={Position.Right} isValidConnection={conn => isValidConnection(conn, nodes)} />
     </div>
   )
 }

@@ -70,6 +70,12 @@ export default function ArtifactPicker({ label, value, onChange, includeExts, st
     return Array.from(dedup.values())
   }, [standardOptions, options])
 
+  // Whether the current value is already present in the suggestions list
+  const valueInOptions = useMemo(() => {
+    if (!value) return false
+    return allOptions.some(o => o.value === value)
+  }, [allOptions, value])
+
   return (
     <label className="flex flex-col gap-2">
       <span className="text-sm font-medium">{label}</span>
@@ -80,7 +86,7 @@ export default function ArtifactPicker({ label, value, onChange, includeExts, st
         onChange={e => onChange(e.target.value)}
       >
         <option value="">(choose from suggestions)</option>
-        {!valueInOptions && value && (
+  {!valueInOptions && value && (
           <option value={value}>{value}</option>
         )}
         {allOptions.length > 0 && (

@@ -643,7 +643,7 @@ async def plan_pipeline(req: PlanRequest):
             dist[v] = max(dist[v], dist[u] + 1)
 
     # Group into lanes
-    lanes_map: Dict[int, list[str]] = {}
+    lanes_map: Dict[int, List[str]] = {}
     for nid in node_ids:
         idx = int(dist.get(nid, 0))
         lanes_map.setdefault(idx, []).append(nid)

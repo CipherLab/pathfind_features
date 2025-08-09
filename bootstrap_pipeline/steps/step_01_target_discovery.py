@@ -152,7 +152,7 @@ def run(input_file: str, features_json_file: str, output_file: str, discovery_fi
         combined = stats_count + batch_count
         if combined > 0:
             stats_mean = (stats_mean * stats_count + batch_mean * batch_count) / combined
-        stats_M2 += batch_M2 + delta ** 2 * stats_count * batch_count / (combined or 1)
+            stats_M2 += batch_M2 + delta ** 2 * stats_count * batch_count / combined
         stats_count = combined
         stats_min = min(stats_min, arr.min())
         stats_max = max(stats_max, arr.max())

@@ -2,6 +2,7 @@ import * as React from 'react'
 import { useCallback, useRef, useState } from 'react'
 import { ReactFlow, 
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
   addEdge,
@@ -10,6 +11,7 @@ import { ReactFlow,
   Connection,
   Edge,
   Node,
+  Handle,
   Position,
   NodeProps,
 } from '@xyflow/react'
@@ -50,6 +52,7 @@ function NodeCard({ data }: NodeProps<Node<NodeData>>){
     : '📊'
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 shadow-md text-slate-100 min-w-[160px]">
+  <Handle type="target" position={Position.Left} />
       <div className="flex items-center justify-between gap-2">
         <div className="font-semibold truncate" title={data.title}>{icon} {data.title}</div>
         <StatusDot s={data.status} />
@@ -57,6 +60,7 @@ function NodeCard({ data }: NodeProps<Node<NodeData>>){
       {data?.config?.summary && (
         <div className="mt-2 max-h-20 overflow-hidden text-ellipsis text-xs text-slate-300" title={data.config.summary}>{data.config.summary}</div>
       )}
+  <Handle type="source" position={Position.Right} />
     </div>
   )
 }
@@ -173,12 +177,12 @@ function PipelineToolbar({ onRunPipeline, onClear }: { onRunPipeline: ()=>void; 
 }
 
 export default function BuilderPage(){
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>([] as Node<NodeData>[])
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([] as Edge[])
   const [selection, setSelection] = useState<Node<NodeData> | null>(null)
   const idRef = useRef(1)
 
-  const onConnect = useCallback((conn: Edge | Connection) => setEdges((eds: Edge[]) => addEdge({ ...conn, type: 'smoothstep' }, eds)), [])
+  const onConnect = useCallback((conn: Edge | Connection) => setEdges((eds) => addEdge({ ...conn, type: 'smoothstep' }, eds as any) as any), [])
 
   const addNode = useCallback((kind: NodeKind) => {
     const id = `n${idRef.current++}`
@@ -266,7 +270,7 @@ export default function BuilderPage(){
             onNodeClick={(_evt: React.MouseEvent, n: Node) => setSelection(n as Node<NodeData>)}
             fitView
           >
-            <Background variant="dots" gap={16} size={1} />
+            <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
             <MiniMap pannable zoomable />
             <Controls />
           </ReactFlow>

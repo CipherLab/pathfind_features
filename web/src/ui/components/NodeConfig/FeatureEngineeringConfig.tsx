@@ -1,7 +1,13 @@
 import * as React from 'react'
 
+interface FeatureEngineeringNodeConfig {
+  maxNew?: number
+  strategy?: string
+  naming?: string
+}
+
 type Props = {
-  cfg: any
+  cfg: FeatureEngineeringNodeConfig
   onChange: (patch: any) => void
 }
 

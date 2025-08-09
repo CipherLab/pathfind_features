@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useCallback, useRef, useState } from 'react'
-import { ReactFlow, 
+import {
+  ReactFlow,
   Background,
   BackgroundVariant,
   Controls,
@@ -14,15 +15,23 @@ import { ReactFlow,
   Handle,
   Position,
   NodeProps,
-  NodeTypes,
 } from '@xyflow/react'
+import type { NodeTypes } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import ParameterForm from '../components/Wizard/ParameterForm'
-import GlobalPickerModal from '../components/Wizard/GlobalPickerModal'
+
+import TargetDiscoveryConfig from '../components/NodeConfig/TargetDiscoveryConfig'
+import PathfindingConfig from '../components/NodeConfig/PathfindingConfig'
+import FeatureEngineeringConfig from '../components/NodeConfig/FeatureEngineeringConfig'
 import { jpost } from '../lib/api'
 
 // Types
-export type NodeKind = 'data-source' | 'target-discovery' | 'pathfinding' | 'feature-engineering' | 'output'
+export type NodeKind =
+  | 'data-source'
+  | 'target-discovery'
+  | 'pathfinding'
+  | 'feature-engineering'
+  | 'output'
+
 export type NodeStatus = 'idle' | 'configured' | 'running' | 'complete' | 'failed'
 
 export type NodeData = {
@@ -34,7 +43,7 @@ export type NodeData = {
 }
 
 // Basic node renderer used for all nodes initially
-function StatusDot({ s }: { s: NodeStatus }){
+function StatusDot({ s }: { s: NodeStatus }) {
   const cls: Record<NodeStatus, string> = {
     idle: 'bg-slate-400',
     configured: 'bg-green-400',
@@ -45,30 +54,42 @@ function StatusDot({ s }: { s: NodeStatus }){
   return <span className={`inline-block h-2.5 w-2.5 rounded-full ${cls[s]}`} />
 }
 
-function NodeCard({ data }: NodeProps<Node<NodeData>>){
-  const icon = data.kind === 'data-source' ? '📁'
-    : data.kind === 'target-discovery' ? '🎯'
-    : data.kind === 'pathfinding' ? '🔍'
-    : data.kind === 'feature-engineering' ? '⚗️'
-    : '📊'
+function NodeCard({ data }: NodeProps<NodeData>) {
+  const icon =
+    data.kind === 'data-source'
+      ? '📁'
+      : data.kind === 'target-discovery'
+      ? '🎯'
+      : data.kind === 'pathfinding'
+      ? '🔍'
+      : data.kind === 'feature-engineering'
+      ? '⚗️'
+      : '📊'
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 shadow-md text-slate-100 min-w-[160px]">
-  <Handle type="target" position={Position.Left} />
+      <Handle type="target" position={Position.Left} />
       <div className="flex items-center justify-between gap-2">
-        <div className="font-semibold truncate" title={data.title}>{icon} {data.title}</div>
+        <div className="font-semibold truncate" title={data.title}>
+          {icon} {data.title}
+        </div>
         <StatusDot s={data.status} />
       </div>
       {data?.config?.summary && (
-        <div className="mt-2 max-h-20 overflow-hidden text-ellipsis text-xs text-slate-300" title={data.config.summary}>{data.config.summary}</div>
+        <div
+          className="mt-2 max-h-20 overflow-hidden text-ellipsis text-xs text-slate-300"
+          title={data.config.summary}
+        >
+          {data.config.summary}
+        </div>
       )}
-  <Handle type="source" position={Position.Right} />
+      <Handle type="source" position={Position.Right} />
     </div>
   )
 }
 
 const nodeTypes: NodeTypes = { default: NodeCard }
 
-// Sidebar for configuration (reuses ParameterForm for now)
+// Sidebar for configuration (node-specific panels)
 function Sidebar({
   selection,
   onUpdate,
@@ -77,7 +98,7 @@ function Sidebar({
   selection: Node<NodeData> | null
   onUpdate: (updater: (prev: NodeData) => NodeData) => void
   onRun: () => void
-}){
+}) {
   // Shared config shim; we reuse ParameterForm to edit common pipeline params
   const [cfg, setCfg] = useState<any>(() => ({
     inputData: 'v5.0/train.parquet',
@@ -101,13 +122,16 @@ function Sidebar({
     }
   }, [selection?.id])
 
-  const updateData = useCallback((patch: any) => {
-    setCfg((prev: any) => {
-      const next = { ...prev, ...patch }
-      onUpdate((p) => ({ ...p, config: next, status: 'configured' }))
-      return next
-    })
-  }, [onUpdate])
+  const updateData = useCallback(
+    (patch: any) => {
+      setCfg((prev: any) => {
+        const next = { ...prev, ...patch }
+        onUpdate(p => ({ ...p, config: next, status: 'configured' }))
+        return next
+      })
+    },
+    [onUpdate]
+  )
 
   if (!selection) {
     return (
@@ -123,31 +147,31 @@ function Sidebar({
         <div className="mt-1 text-xs text-slate-400">Status: {d.status}</div>
       </div>
       <div className="flex-1 overflow-auto p-3">
-        {/* For Phase 1 we reuse ParameterForm directly. Later this will branch by kind. */}
-        <ParameterForm
-          inputData={cfg.inputData} setInputData={(v)=>updateData({ inputData: v })}
-          featuresJson={cfg.featuresJson} setFeaturesJson={(v)=>updateData({ featuresJson: v })}
-          runName={cfg.runName} setRunName={(v)=>updateData({ runName: v })}
-          maxNew={cfg.maxNew} setMaxNew={(v)=>updateData({ maxNew: v })}
-          disablePF={cfg.disablePF} setDisablePF={(v)=>updateData({ disablePF: v })}
-          pretty={cfg.pretty} setPretty={(v)=>updateData({ pretty: v })}
-          smoke={cfg.smoke} setSmoke={(v)=>updateData({ smoke: v })}
-          smokeEras={cfg.smokeEras} setSmokeEras={(v)=>updateData({ smokeEras: v })}
-          smokeRows={cfg.smokeRows} setSmokeRows={(v)=>updateData({ smokeRows: v })}
-          smokeFeat={cfg.smokeFeat} setSmokeFeat={(v)=>updateData({ smokeFeat: v })}
-          seed={cfg.seed} setSeed={(v)=>updateData({ seed: v })}
-        />
+        {d.kind === 'target-discovery' && (
+          <TargetDiscoveryConfig cfg={cfg} onChange={updateData} />
+        )}
+        {d.kind === 'pathfinding' && <PathfindingConfig cfg={cfg} onChange={updateData} />}
+        {d.kind === 'feature-engineering' && (
+          <FeatureEngineeringConfig cfg={cfg} onChange={updateData} />
+        )}
+        {d.kind !== 'target-discovery' &&
+          d.kind !== 'pathfinding' &&
+          d.kind !== 'feature-engineering' && (
+            <div className="text-sm text-slate-300">No configuration available.</div>
+          )}
       </div>
       <div className="border-t border-slate-700 p-3">
         <div className="row-between">
-          <button className="btn btn-primary" onClick={onRun}>Run Node</button>
+          <button className="btn btn-primary" onClick={onRun}>
+            Run Node
+          </button>
         </div>
       </div>
     </div>
   )
 }
 
-function NodePalette({ onAdd }: { onAdd: (kind: NodeKind) => void }){
+function NodePalette({ onAdd }: { onAdd: (kind: NodeKind) => void }) {
   const items: { kind: NodeKind; label: string; icon: string }[] = [
     { kind: 'data-source', label: 'Data', icon: '📁' },
     { kind: 'target-discovery', label: 'Targets', icon: '🎯' },
@@ -158,7 +182,7 @@ function NodePalette({ onAdd }: { onAdd: (kind: NodeKind) => void }){
   return (
     <div className="flex flex-col gap-2 p-2">
       <div className="text-xs font-semibold text-slate-300">Palette</div>
-      {items.map((it) => (
+      {items.map(it => (
         <button key={it.kind} className="btn" onClick={() => onAdd(it.kind)}>
           <span className="w-6 text-center">{it.icon}</span> {it.label}
         </button>
@@ -167,119 +191,262 @@ function NodePalette({ onAdd }: { onAdd: (kind: NodeKind) => void }){
   )
 }
 
-function PipelineToolbar({ onRunPipeline, onClear }: { onRunPipeline: ()=>void; onClear: ()=>void }){
+function PipelineToolbar({
+  onRunPipeline,
+  onClear,
+  progress,
+}: {
+  onRunPipeline: () => void
+  onClear: () => void
+  progress: { total: number; completed: number }
+}) {
+  const pct = progress.total ? Math.round((progress.completed / progress.total) * 100) : 0
   return (
     <div className="flex items-center gap-2 border-b border-slate-700 bg-slate-900/60 p-2">
-      <button className="btn btn-primary" onClick={onRunPipeline}>Run Pipeline</button>
-      <button className="btn" onClick={onClear}>Clear</button>
+      <button className="btn btn-primary" onClick={onRunPipeline}>
+        Run Pipeline
+      </button>
+      <button className="btn" onClick={onClear}>
+        Clear
+      </button>
+      {progress.total > 0 && (
+        <div className="flex items-center gap-2 flex-1">
+          <progress className="flex-1" value={progress.completed} max={progress.total}></progress>
+          <span className="text-xs text-slate-300 w-10 text-right">{pct}%</span>
+        </div>
+      )}
     </div>
   )
 }
 
-export default function BuilderPage(){
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>([] as Node<NodeData>[])
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([] as Edge[])
+function topoSort(ns: Node<NodeData>[], es: Edge[]): string[] | null {
+  const inDeg = new Map<string, number>()
+  const adj = new Map<string, string[]>()
+  ns.forEach(n => {
+    inDeg.set(n.id, 0)
+    adj.set(n.id, [])
+  })
+  es.forEach(e => {
+    if (inDeg.has(e.target) && adj.has(e.source)) {
+      inDeg.set(e.target, (inDeg.get(e.target) || 0) + 1)
+      adj.get(e.source)!.push(e.target)
+    }
+  })
+  const q: string[] = []
+  inDeg.forEach((deg, id) => {
+    if (deg === 0) q.push(id)
+  })
+  const order: string[] = []
+  while (q.length) {
+    const id = q.shift()!
+    order.push(id)
+    adj.get(id)!.forEach(t => {
+      const nd = (inDeg.get(t) || 0) - 1
+      inDeg.set(t, nd)
+      if (nd === 0) q.push(t)
+    })
+  }
+  if (order.length !== ns.length) return null
+  return order
+}
+
+function validatePipeline(ns: Node<NodeData>[], es: Edge[]): string[] | null {
+  if (ns.length === 0) {
+    alert('Add some nodes first')
+    return null
+  }
+  for (const n of ns) {
+    if (n.data.status === 'idle') {
+      alert(`Node "${n.data.title}" is not configured`)
+      return null
+    }
+  }
+  const order = topoSort(ns, es)
+  if (!order) {
+    alert('Pipeline has cycles or disconnected nodes')
+    return null
+  }
+  return order
+}
+
+export default function BuilderPage() {
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(
+    ([] as unknown) as Node<NodeData>[]
+  )
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(([] as unknown) as Edge[])
   const [selection, setSelection] = useState<Node<NodeData> | null>(null)
+  const [progress, setProgress] = useState({ total: 0, completed: 0 })
   const idRef = useRef(1)
 
-  const onConnect = useCallback((conn: Edge | Connection) => setEdges((eds) => addEdge({ ...conn, type: 'smoothstep' }, eds as any) as any), [])
+  const onConnect = useCallback(
+    (conn: Edge | Connection) =>
+      setEdges(eds => addEdge({ ...conn, type: 'smoothstep' }, eds as any) as any),
+    [setEdges]
+  )
 
-  const addNode = useCallback((kind: NodeKind) => {
-    const id = `n${idRef.current++}`
-    const title = kind === 'data-source' ? 'Data Source'
-      : kind === 'target-discovery' ? 'Target Discovery'
-      : kind === 'pathfinding' ? 'Pathfinding'
-      : kind === 'feature-engineering' ? 'Feature Engineering'
-      : 'Output'
-    const n: Node<NodeData> = {
-      id,
-      type: 'default',
-      position: { x: 140 + nodes.length * 50, y: 100 + nodes.length * 20 },
-      data: { kind, title, status: 'idle', config: {} },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-    }
-  setNodes((ns: Node<NodeData>[]) => [...ns, n])
-    setSelection(n)
-  }, [nodes.length])
-
-  const propagateArtifacts = useCallback((src: Node<NodeData>) => {
-    setNodes((ns: Node<NodeData>[]) => {
-      let updated = ns
-      if (src.data.kind === 'target-discovery') {
-        const downstream = edges.filter((e) => e.source === src.id).map((e) => e.target)
-        updated = ns.map((n) => {
-          if (downstream.includes(n.id) && n.data.kind === 'pathfinding') {
-            const cfg = { ...n.data.config, inheritTargetsFrom: src.id, targetsJson: 'target_discovery.json' }
-            const status = n.data.status === 'idle' ? 'configured' : n.data.status
-            return { ...n, data: { ...n.data, config: cfg, status } }
-          }
-          return n
-        })
-      } else if (src.data.kind === 'pathfinding') {
-        const downstream = edges.filter((e) => e.source === src.id).map((e) => e.target)
-        updated = ns.map((n) => {
-          if (downstream.includes(n.id) && n.data.kind === 'feature-engineering') {
-            const cfg = { ...n.data.config, inheritRelationshipsFrom: src.id, relationshipsJson: 'relationships.json' }
-            const status = n.data.status === 'idle' ? 'configured' : n.data.status
-            return { ...n, data: { ...n.data, config: cfg, status } }
-          }
-          return n
-        })
+  const addNode = useCallback(
+    (kind: NodeKind) => {
+      const id = `n${idRef.current++}`
+      const title =
+        kind === 'data-source'
+          ? 'Data Source'
+          : kind === 'target-discovery'
+          ? 'Target Discovery'
+          : kind === 'pathfinding'
+          ? 'Pathfinding'
+          : kind === 'feature-engineering'
+          ? 'Feature Engineering'
+          : 'Output'
+      const n: Node<NodeData> = {
+        id,
+        type: 'default',
+        position: { x: 140 + nodes.length * 50, y: 100 + nodes.length * 20 },
+        data: { kind, title, status: 'idle', config: {} },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
       }
-      return updated
-    })
-  }, [edges, setNodes])
+      setNodes((ns: Node<NodeData>[]) => [...ns, n])
+      setSelection(n)
+    },
+    [nodes.length, setNodes]
+  )
 
-  const onRunNode = useCallback(async()=>{
-    if (!selection) return
-    // For now, just show a command preview and call the same /runs endpoint when the node is the first stage
-    const d = selection.data
-    if (d.kind === 'target-discovery'){
-      try{
-        const cfg = d.config || {}
-        const payload = {
-          input_data: cfg.inputData || 'v5.0/train.parquet',
-          features_json: cfg.featuresJson || 'v5.0/features.json',
-          run_name: cfg.runName || 'wizard',
-          max_new_features: cfg.maxNew ?? 8,
-          disable_pathfinding: true,
-          pretty: cfg.pretty ?? true,
-          smoke_mode: cfg.smoke ?? true,
-          smoke_max_eras: cfg.smokeEras,
-          smoke_row_limit: cfg.smokeRows,
-          smoke_feature_limit: cfg.smokeFeat,
-          seed: cfg.seed ?? 42,
+  // Inherit artifacts downstream after certain nodes complete
+  const propagateArtifacts = useCallback(
+    (src: Node<NodeData>) => {
+      setNodes((ns: Node<NodeData>[]) => {
+        let updated = ns
+        if (src.data.kind === 'target-discovery') {
+          const downstream = edges.filter(e => e.source === src.id).map(e => e.target)
+          updated = ns.map(n => {
+            if (downstream.includes(n.id) && n.data.kind === 'pathfinding') {
+              const cfg = {
+                ...n.data.config,
+                inheritTargetsFrom: src.id,
+                targetsJson: 'target_discovery.json',
+              }
+              const status = n.data.status === 'idle' ? 'configured' : n.data.status
+              return { ...n, data: { ...n.data, config: cfg, status } }
+            }
+            return n
+          })
+        } else if (src.data.kind === 'pathfinding') {
+          const downstream = edges.filter(e => e.source === src.id).map(e => e.target)
+          updated = ns.map(n => {
+            if (downstream.includes(n.id) && n.data.kind === 'feature-engineering') {
+              const cfg = {
+                ...n.data.config,
+                inheritRelationshipsFrom: src.id,
+                relationshipsJson: 'relationships.json',
+              }
+              const status = n.data.status === 'idle' ? 'configured' : n.data.status
+              return { ...n, data: { ...n.data, config: cfg, status } }
+            }
+            return n
+          })
         }
-        setNodes((ns: Node<NodeData>[])=> ns.map((n: Node<NodeData>)=> n.id===selection.id? { ...n, data: { ...n.data, status: 'running' as NodeStatus } }: n))
-        await jpost('/runs', payload)
-        setNodes((ns: Node<NodeData>[])=> ns.map((n: Node<NodeData>)=> n.id===selection.id? { ...n, data: { ...n.data, status: 'complete' as NodeStatus } }: n))
-        propagateArtifacts(selection)
-      }catch{
-        setNodes((ns: Node<NodeData>[])=> ns.map((n: Node<NodeData>)=> n.id===selection.id? { ...n, data: { ...n.data, status: 'failed' as NodeStatus } }: n))
+        return updated
+      })
+    },
+    [edges, setNodes]
+  )
+
+  const runNode = useCallback(
+    async (node: Node<NodeData>) => {
+      const { id, data } = node
+      const cfg = data.config || {}
+
+      // mark running
+      setNodes(ns =>
+        ns.map(n =>
+          n.id === id ? { ...n, data: { ...n.data, status: 'running' as NodeStatus } } : n
+        )
+      )
+
+      try {
+        if (data.kind === 'target-discovery') {
+          const payload = {
+            input_data: cfg.inputData || 'v5.0/train.parquet',
+            features_json: cfg.featuresJson || 'v5.0/features.json',
+            run_name: cfg.runName || 'wizard',
+            max_new_features: cfg.maxNew ?? 8,
+            disable_pathfinding: true,
+            pretty: cfg.pretty ?? true,
+            smoke_mode: cfg.smoke ?? true,
+            smoke_max_eras: cfg.smokeEras,
+            smoke_row_limit: cfg.smokeRows,
+            smoke_feature_limit: cfg.smokeFeat,
+            seed: cfg.seed ?? 42,
+          }
+          await jpost('/runs', payload)
+        } else {
+          // Placeholder for other node kinds until real endpoints exist
+          await new Promise(res => setTimeout(res, 300))
+        }
+
+        // mark complete
+        setNodes(ns =>
+          ns.map(n =>
+            n.id === id ? { ...n, data: { ...n.data, status: 'complete' as NodeStatus } } : n
+          )
+        )
+
+        // propagate outputs to downstream nodes when relevant
+        if (data.kind === 'target-discovery' || data.kind === 'pathfinding') {
+          propagateArtifacts(node)
+        }
+      } catch (e) {
+        setNodes(ns =>
+          ns.map(n =>
+            n.id === id ? { ...n, data: { ...n.data, status: 'failed' as NodeStatus } } : n
+          )
+        )
+        throw e
+      }
+    },
+    [setNodes, propagateArtifacts]
+  )
+
+  const onRunNode = useCallback(async () => {
+    if (!selection) return
+    await runNode(selection)
+  }, [selection, runNode])
+
+  const onUpdateSelection = useCallback(
+    (updater: (prev: NodeData) => NodeData) => {
+      if (!selection) return
+      setNodes((ns: Node<NodeData>[]) =>
+        ns.map((n: Node<NodeData>) =>
+          n.id === selection.id ? { ...n, data: updater(n.data) } : n
+        )
+      )
+    },
+    [selection, setNodes]
+  )
+
+  const onRunPipeline = useCallback(async () => {
+    const order = validatePipeline(nodes, edges)
+    if (!order) return
+    setProgress({ total: order.length, completed: 0 })
+    const map = new Map(nodes.map(n => [n.id, n]))
+    for (const id of order) {
+      const node = map.get(id)
+      if (!node) continue
+      try {
+        await runNode(node)
+        setProgress(p => ({ total: p.total, completed: p.completed + 1 }))
+      } catch {
+        alert(`Node "${node.data.title}" failed. Pipeline stopped.`)
+        break
       }
     }
-  }, [selection, propagateArtifacts])
+  }, [nodes, edges, runNode])
 
-  const onUpdateSelection = useCallback((updater: (prev: NodeData) => NodeData)=>{
-    if (!selection) return
-  setNodes((ns: Node<NodeData>[]) => ns.map((n: Node<NodeData>) => (n.id === selection.id ? { ...n, data: updater(n.data) } : n)))
-  }, [selection])
-
-  const onRunPipeline = useCallback(()=>{
-    // Phase 1 foundation: if there is a target-discovery node configured, run it.
-  const td = nodes.find((n: Node<NodeData>)=> n.data.kind==='target-discovery')
-    setSelection(td || null)
-    if (td) {
-      // trigger node run for now
-      setTimeout(()=>{
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
-        onRunNode()
-      }, 0)
-    }
-  }, [nodes, onRunNode])
-
-  const onClear = useCallback(()=>{ setNodes([]); setEdges([]); setSelection(null) }, [])
+  const onClear = useCallback(() => {
+    setNodes([])
+    setEdges([])
+    setSelection(null)
+  }, [setNodes, setEdges])
 
   return (
     <div className="flex h-[calc(100vh-140px)] gap-2">
@@ -287,7 +454,11 @@ export default function BuilderPage(){
         <NodePalette onAdd={addNode} />
       </div>
       <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-slate-700 bg-slate-900/40">
-        <PipelineToolbar onRunPipeline={onRunPipeline} onClear={onClear} />
+        <PipelineToolbar
+          onRunPipeline={onRunPipeline}
+          onClear={onClear}
+          progress={progress}
+        />
         <div className="relative min-h-0 flex-1">
           <ReactFlow
             nodes={nodes}
@@ -296,7 +467,9 @@ export default function BuilderPage(){
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             nodeTypes={nodeTypes}
-            onNodeClick={(_evt: React.MouseEvent, n: Node) => setSelection(n as Node<NodeData>)}
+            onNodeClick={(_evt: React.MouseEvent, n: Node) =>
+              setSelection(n as Node<NodeData>)
+            }
             fitView
           >
             <Background variant={BackgroundVariant.Dots} gap={16} size={1} />

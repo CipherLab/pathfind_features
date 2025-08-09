@@ -77,7 +77,7 @@ export default function NodeCard(props: NodeProps<NodeData>) {
               type="target"
               position={Position.Left}
               style={{ ...styleFor(inp.type, incoming(inp.id).length === 0), top: 16 + idx * 16 }}
-        isValidConnection={conn => isValidConnection(conn as any, getNodes() as any, getEdges() as any)}
+        isValidConnection={(conn: Connection) => isValidConnection(conn, getNodes() as Node[], getEdges() as Edge[])}
             />
           ))}
         </div>

@@ -6,6 +6,8 @@ import ParameterForm from '../components/Wizard/ParameterForm'
 import CommandPreview from '../components/Wizard/CommandPreview'
 import { API_BASE, jpost, jget } from '../lib/api'
 import ActiveRuns from '../components/ActiveRuns'
+import ParameterHelp from '../components/Wizard/ParameterHelp'
+import PreflightPanel from '../components/Wizard/PreflightPanel'
 
 export default function WizardPage(){
   const [inputData, setInputData] = useState('v5.0/train.parquet')
@@ -106,19 +108,52 @@ export default function WizardPage(){
       )}
 
       {step===2 && (
-        <ParameterForm
-          inputData={inputData} setInputData={setInputData}
-          featuresJson={featuresJson} setFeaturesJson={setFeaturesJson}
-          runName={runName} setRunName={setRunName}
-          maxNew={maxNew} setMaxNew={setMaxNew}
-          disablePF={disablePF} setDisablePF={setDisablePF}
-          pretty={pretty} setPretty={setPretty}
-          smoke={smoke} setSmoke={setSmoke}
-          smokeEras={smokeEras} setSmokeEras={setSmokeEras}
-          smokeRows={smokeRows} setSmokeRows={setSmokeRows}
-          smokeFeat={smokeFeat} setSmokeFeat={setSmokeFeat}
-          seed={seed} setSeed={setSeed}
-        />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+            <ParameterForm
+              inputData={inputData} setInputData={setInputData}
+              featuresJson={featuresJson} setFeaturesJson={setFeaturesJson}
+              runName={runName} setRunName={setRunName}
+              maxNew={maxNew} setMaxNew={setMaxNew}
+              disablePF={disablePF} setDisablePF={setDisablePF}
+              pretty={pretty} setPretty={setPretty}
+              smoke={smoke} setSmoke={setSmoke}
+              smokeEras={smokeEras} setSmokeEras={setSmokeEras}
+              smokeRows={smokeRows} setSmokeRows={setSmokeRows}
+              smokeFeat={smokeFeat} setSmokeFeat={setSmokeFeat}
+              seed={seed} setSeed={setSeed}
+            />
+            <PreflightPanel
+              input_data={inputData}
+              features_json={featuresJson}
+              stage1_from={stage1FromRun? `pipeline_runs/${stage1FromRun}`: undefined}
+              stage2_from={stage2FromRun? `pipeline_runs/${stage2FromRun}`: undefined}
+              skip_walk_forward={false}
+              max_new_features={maxNew}
+              disable_pathfinding={disablePF}
+              smoke_mode={smoke}
+              smoke_max_eras={smoke? smokeEras: undefined}
+              smoke_row_limit={smoke? smokeRows: undefined}
+              smoke_feature_limit={smoke? smokeFeat: undefined}
+              seed={seed}
+            />
+          </div>
+          <ParameterHelp setters={{
+            input_data: setInputData,
+            features_json: setFeaturesJson,
+            run_name: setRunName,
+            max_new_features: setMaxNew as any,
+            disable_pathfinding: setDisablePF as any,
+            pretty: setPretty as any,
+            smoke_mode: setSmoke as any,
+            smoke_max_eras: setSmokeEras as any,
+            smoke_row_limit: setSmokeRows as any,
+            smoke_feature_limit: setSmokeFeat as any,
+            seed: setSeed as any,
+            stage1_from: (v:string)=> setStage1FromRun(v||''),
+            stage2_from: (v:string)=> setStage2FromRun(v||''),
+          }} />
+        </div>
       )}
 
       {step===3 && (

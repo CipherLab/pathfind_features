@@ -19,6 +19,7 @@ from bootstrap_pipeline.analysis import performance as analysis
 from bootstrap_pipeline.utils.cache import compute_hash, stage_cache_lookup, stage_cache_store, materialize_cached_artifacts
 import random
 import numpy as np
+from typing import List
 
 def setup_logging(log_file):
     """Initializes logging to both file and console for a specific run."""
@@ -41,6 +42,61 @@ def _resolve_smoke_value(args, attr_name, default_if_smoke):
     if getattr(args, 'smoke_mode', False):
         return default_if_smoke
     return None
+
+def _write_merged_features_json(run_dir: str, base_features_json: str, new_features_list_path: str) -> str:
+    """Create a features.json in run_dir by merging base features with newly engineered features.
+    - Reads base_features_json (expects feature_sets.medium).
+    - Appends any names from new_features_list_path that aren't already present.
+    - Writes to run_dir/features.json and returns the path.
+    Fallback: if base can't be parsed, writes a minimal features.json with the new features only.
+    """
+    out_path = os.path.join(run_dir, "features.json")
+    try:
+        base = {}
+        with open(base_features_json, 'r') as f:
+            base = json.load(f)
+        with open(new_features_list_path, 'r') as f:
+            new_names: List[str] = json.load(f)
+        # Ensure structure
+        if not isinstance(base, dict):
+            base = {}
+        fs = base.setdefault('feature_sets', {}) if isinstance(base, dict) else {}
+        medium = fs.get('medium') if isinstance(fs, dict) else None
+        if not isinstance(medium, list):
+            medium = []
+            if isinstance(fs, dict):
+                fs['medium'] = medium
+        # Normalize to names
+        def name_of(x):
+            if isinstance(x, str):
+                return x
+            if isinstance(x, dict) and 'name' in x:
+                return str(x['name'])
+            return None
+        existing_names = []
+        for item in medium:
+            nm = name_of(item)
+            if nm is not None:
+                existing_names.append(nm)
+        # Append new ones
+        for nm in new_names:
+            if nm not in existing_names:
+                medium.append(nm)
+                existing_names.append(nm)
+        with open(out_path, 'w') as f:
+            json.dump(base, f, indent=2)
+        return out_path
+    except Exception:
+        # Fallback minimal
+        try:
+            with open(new_features_list_path, 'r') as f:
+                new_names = json.load(f)
+            minimal = {"feature_sets": {"medium": list(new_names or [])}}
+            with open(out_path, 'w') as f:
+                json.dump(minimal, f, indent=2)
+            return out_path
+        except Exception:
+            return out_path
 
 
 def main():
@@ -265,7 +321,9 @@ def main():
                 if cached_dir and not args.force:
                     logging.info("=== STAGE 3: RESTORED FROM CACHE ===")
                     materialize_cached_artifacts(cached_dir, {'enhanced_data': stage3_output, 'new_features_list': os.path.join(run_dir, 'new_feature_names.json')}, run_dir)
-                    update_summary_step(run_summary, "feature_engineering", 0, {"enhanced_data": stage3_output, "new_features_list": os.path.join(run_dir, 'new_feature_names.json')}, status="CACHED")
+                    # Ensure merged features.json exists when restored from cache
+                    merged_fjson = _write_merged_features_json(run_dir, args.features_json, os.path.join(run_dir, 'new_feature_names.json'))
+                    update_summary_step(run_summary, "feature_engineering", 0, {"enhanced_data": stage3_output, "new_features_list": os.path.join(run_dir, 'new_feature_names.json'), "features_json": merged_fjson}, status="CACHED")
                 else:
                     logging.info("="*20 + " STAGE 3: Feature Engineering " + "="*20)
                     start_time = time.time()
@@ -278,12 +336,15 @@ def main():
                         row_limit=_resolve_smoke_value(args, 'smoke_row_limit', default_if_smoke=100_000)
                     )
                     duration = time.time() - start_time
-                    update_summary_step(run_summary, "feature_engineering", duration, {"enhanced_data": stage3_output, "new_features_list": os.path.join(run_dir, 'new_feature_names.json')})
-                    stage_cache_store('stage3', stage3_cache_key, {'enhanced_data': stage3_output, 'new_features_list': os.path.join(run_dir, 'new_feature_names.json')}, {'seed': args.seed})
+                    merged_fjson = _write_merged_features_json(run_dir, args.features_json, os.path.join(run_dir, 'new_feature_names.json'))
+                    update_summary_step(run_summary, "feature_engineering", duration, {"enhanced_data": stage3_output, "new_features_list": os.path.join(run_dir, 'new_feature_names.json'), "features_json": merged_fjson})
+                    stage_cache_store('stage3', stage3_cache_key, {'enhanced_data': stage3_output, 'new_features_list': os.path.join(run_dir, 'new_feature_names.json'), 'features_json': merged_fjson}, {'seed': args.seed})
                     save_summary(run_summary, run_dir)
             else:
                 logging.info("="*20 + " STAGE 3: SKIPPED (Cached) " + "="*20)
-                update_summary_step(run_summary, "feature_engineering", 0, {"enhanced_data": stage3_output}, status="CACHED")
+                # Attempt to fill in merged features.json when skipping
+                merged_fjson = _write_merged_features_json(run_dir, args.features_json, os.path.join(run_dir, 'new_feature_names.json'))
+                update_summary_step(run_summary, "feature_engineering", 0, {"enhanced_data": stage3_output, "new_features_list": os.path.join(run_dir, 'new_feature_names.json'), "features_json": merged_fjson}, status="CACHED")
                 save_summary(run_summary, run_dir)
         else:
             logging.info("="*20 + " STAGE 3: DISABLED " + "="*20)
@@ -368,7 +429,7 @@ def print_pretty_summary(summary, color=True):
     # Key artifact shortcuts
     art = summary.get('artifacts', {})
     print(f"Key Artifacts:")
-    for label in ["adaptive_targets", "relationships_json", "enhanced_data", "new_features_list"]:
+    for label in ["adaptive_targets", "relationships_json", "enhanced_data", "new_features_list", "features_json"]:
         if label in art:
             print(f"  - {label}: {art[label]}")
 

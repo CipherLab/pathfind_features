@@ -11,3 +11,4 @@ altair
 fastapi
 uvicorn[standard]
 pydantic
+pytest

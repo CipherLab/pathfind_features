@@ -144,6 +144,7 @@ export default function GlobalPickerModal({ mode, onSelect, onClose }: Props){
           <table className="w-full text-left text-xs">
             <thead className="sticky top-0 bg-slate-900">
               <tr>
+                <th className="p-2">Select</th>
                 <th className="cursor-pointer p-2" onClick={()=>toggleSort('run')}>Run</th>
                 <th className="cursor-pointer p-2" onClick={()=>toggleSort('name')}>Name</th>
                 <th className="cursor-pointer p-2" onClick={()=>toggleSort('rows')}>Rows</th>
@@ -152,7 +153,6 @@ export default function GlobalPickerModal({ mode, onSelect, onClose }: Props){
                 <th className="cursor-pointer p-2" onClick={()=>toggleSort('added_count')}>+Δ</th>
                 <th className="cursor-pointer p-2" onClick={()=>toggleSort('removed_count')}>-Δ</th>
                 <th className="p-2">Era</th>
-                <th className="p-2">Select</th>
               </tr>
             </thead>
             <tbody>
@@ -161,15 +161,17 @@ export default function GlobalPickerModal({ mode, onSelect, onClose }: Props){
               )}
               {!loading && sorted.map((r)=> (
                 <tr key={r.path} className={`border-b border-slate-800 ${topPaths.has(r.path)? 'bg-blue-900/20':''}`}>
+                  <td className="p-2"><button className="btn btn-xs" onClick={()=> { onSelect(r.path); onClose() }}>Select</button></td>
                   <td className="p-2 text-slate-300">{r.run}</td>
-                  <td className="p-2 text-slate-300">{r.path}</td>
+                  <td className="p-2 text-slate-300">
+                    <span className="inline-block max-w-[4em] truncate align-baseline" title={r.path}>{r.path}</span>
+                  </td>
                   <td className="p-2 text-slate-300">{r.rows ?? ''}</td>
                   <td className="p-2 text-slate-300">{r.num_features ?? ''}</td>
                   <td className="p-2 text-slate-300">{r.features_medium_count ?? ''}</td>
                   <td className="p-2 text-slate-300">{r.added_count ?? ''}</td>
                   <td className="p-2 text-slate-300">{r.removed_count ?? ''}</td>
                   <td className="p-2 text-slate-300">{r.has_era===null || r.has_era===undefined? '': String(r.has_era)}</td>
-                  <td className="p-2"><button className="btn btn-xs" onClick={()=> { onSelect(r.path); onClose() }}>Select</button></td>
                 </tr>
               ))}
             </tbody>

@@ -1,5 +1,6 @@
 import * as React from 'react'
 import GlobalPickerModal from './GlobalPickerModal'
+import { generateExperimentName } from '../../lib/nameGenerator'
 
 type Props = {
   inputData: string; setInputData: (v:string)=>void
@@ -24,8 +25,18 @@ export default function ParameterForm(p: Props){
   const totalEngineered = Math.round(p.maxNew * 9)
   const zone: 'green'|'yellow'|'red' = p.maxNew <= 10 ? 'green' : (p.maxNew <= 30 ? 'yellow' : 'red')
 
+  function generateAndSetRunName() {
+    p.setRunName(generateExperimentName())
+  }
+
+  React.useEffect(() => {
+    if (!p.runName) {
+        generateAndSetRunName();
+    }
+  }, []);
+
   function luckyDefaults(){
-    p.setRunName((p.runName && !/lucky/i.test(p.runName))? p.runName : `wizard_v2_${Math.floor(Math.random()*1000)}`)
+    generateAndSetRunName()
     p.setMaxNew(8)
     p.setSmoke(true)
     p.setSmokeEras(60)
@@ -95,7 +106,27 @@ export default function ParameterForm(p: Props){
           </label>
           <label className="flex flex-col gap-2">
             <span className="text-sm font-medium">Run name</span>
-            <input className="input" value={p.runName} onChange={e=>p.setRunName(e.target.value)} />
+            <div className="relative">
+              <input
+                className="input truncate w-full pr-10"
+                value={p.runName}
+                onChange={e=>p.setRunName(e.target.value)}
+                title={p.runName}
+                placeholder="Experiment name"
+                aria-label="Run name"
+              />
+              <button
+                type="button"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-slate-300 hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                onClick={generateAndSetRunName}
+                title="Randomize name"
+                aria-label="Randomize name"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V4a1 1 0 011-1zm12 1a1 1 0 011 1v5a1 1 0 01-1 1h-5a1 1 0 010-2h2.101a5.002 5.002 0 00-9.499-1.404 1 1 0 11-1.885-.666A7.002 7.002 0 0115.899 6H18a1 1 0 011-1z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
             <span className="text-xs text-slate-400">Directory to save run artifacts.</span>
           </label>
           {/* Max new slider with live preview */}
@@ -175,11 +206,35 @@ export default function ParameterForm(p: Props){
           </label>
           <div className="flex flex-col gap-2">
             <span className="text-sm">Reproducibility</span>
-            <div className="flex flex-wrap items-center gap-2">
-              <button className="btn btn-xs" onClick={()=>p.setSeed(Math.floor(Math.random()*1_000_000_000))}>Random</button>
-              <button className="btn btn-xs" onClick={()=>p.setSeed(42)}>Lucky 42</button>
-              <span className="text-xs text-slate-400">Seed:</span>
-              <input ref={seedRef} className="input w-28" type="number" value={p.seed} onChange={e=>p.setSeed(parseInt(e.target.value||'0',10))} aria-label="Seed" title="Seed" placeholder="Seed" />
+            <div className="relative w-full md:w-80">
+              <input
+                ref={seedRef}
+                className="input w-full pr-40"
+                type="number"
+                value={p.seed}
+                onChange={e=>p.setSeed(parseInt(e.target.value||'0',10))}
+                aria-label="Seed"
+                title="Seed"
+                placeholder="Seed"
+              />
+              <div className="absolute inset-y-0 right-1 flex items-center gap-1">
+                <button
+                  className="btn btn-xs"
+                  onClick={()=>p.setSeed(Math.floor(Math.random()*1_000_000_000))}
+                  title="Random seed"
+                  aria-label="Random seed"
+                >
+                  Random
+                </button>
+                <button
+                  className="btn btn-xs"
+                  onClick={()=>p.setSeed(42)}
+                  title="Lucky 42"
+                  aria-label="Lucky 42"
+                >
+                  Lucky 42
+                </button>
+              </div>
             </div>
             <div className="text-xs text-slate-400">Same seed = same sampling and randomized choices.</div>
           </div>

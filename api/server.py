@@ -31,6 +31,7 @@ class RunReqModel(BaseModel):
     run_name: Optional[str] = None
     stage1_from: Optional[str] = None
     stage2_from: Optional[str] = None
+    phase: Optional[str] = None  # "full" | "target" | "pathfinding" | "features"
     force: bool = False
     skip_walk_forward: bool = False
     max_new_features: int = 20
@@ -207,6 +208,158 @@ async def get_logs(run_id: str):
     if not path.exists():
         return {"content": ""}
     return {"content": path.read_text(encoding="utf-8", errors="ignore")[-200000:]}
+
+
+# ========== Phase-Aware Wizard APIs ==========
+
+class Phase(str):
+    pass
+
+
+class PhaseRunVariant(BaseModel):
+    # Minimal param override per variant
+    run_name: Optional[str] = None
+    params: Dict[str, Any] = {}
+
+
+class PhaseQueueRequest(BaseModel):
+    phase: str  # target|pathfinding|features|full
+    base: RunReqModel
+    variants: list[PhaseRunVariant]
+
+
+@app.post("/phases/queue", status_code=202)
+async def queue_phase_runs(req: PhaseQueueRequest):
+    """Queue multiple runs for a given phase by cloning base params and applying per-variant overrides."""
+    started = []
+    for v in req.variants:
+        merged = req.base.model_dump()
+        merged.update(v.params or {})
+        merged["phase"] = req.phase
+        if v.run_name:
+            merged["run_name"] = v.run_name
+        r = RUNS.start(RunRequest(**merged))
+        started.append(r.to_dict())
+    return {"started": started, "count": len(started)}
+
+
+def _read_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+    except Exception:
+        return None
+
+
+def _phase_metrics_from_run(run_dir: Path) -> Dict[str, Any]:
+    """Compute lightweight metrics for each stage from artifacts, for comparison dashboards."""
+    out: Dict[str, Any] = {"run": run_dir.name}
+    # Stage 1: target discovery json has weights per era; compute weight dispersion/stability
+    s1 = run_dir / "01_target_discovery.json"
+    if s1.exists():
+        try:
+            weights = _read_json(s1) or {}
+            import statistics as stats
+            row_counts = []
+            stabilities = []
+            for era, arr in weights.items():
+                if isinstance(arr, list) and arr:
+                    row_counts.append(len(arr))
+                    mean = sum(arr) / len(arr)
+                    var = sum((x - mean) ** 2 for x in arr) / len(arr)
+                    stabilities.append(var)
+            out["target_weight_count"] = min(row_counts) if row_counts else None
+            out["target_weight_var_mean"] = (sum(stabilities) / len(stabilities)) if stabilities else None
+        except Exception:
+            pass
+    # Stage 2: relationships.json debug contains counts; if not, infer from list size
+    s2 = run_dir / "02_discovered_relationships.json"
+    if s2.exists():
+        rels = _read_json(s2) or []
+        out["relationships_found"] = len(rels) if isinstance(rels, list) else None
+        s2dbg = run_dir / "02_discovered_relationships.json.debug.json"
+        if s2dbg.exists():
+            dbg = _read_json(s2dbg) or {}
+            for k in ["matrix_max", "matrix_mean", "offdiag_gt_0p1", "successful_paths"]:
+                if k in dbg:
+                    out[f"pf_{k}"] = dbg[k]
+    # Stage 3: new feature names count
+    s3 = run_dir / "new_feature_names.json"
+    if s3.exists():
+        names = _read_json(s3) or []
+        out["new_features"] = len(names) if isinstance(names, list) else None
+    return out
+
+
+@app.get("/phases/{phase}/compare")
+async def compare_phase(phase: str, limit: int = 50):
+    """List recent runs (FS) and return compact metrics to compare within a phase."""
+    runs = RUNS.list_runs_fs()
+    # Filter by ui_meta.phase in run_summary if available
+    out = []
+    for r in reversed(runs):
+        if len(out) >= limit:
+            break
+        sp = r.get("summary_path")
+        if not sp:
+            continue
+        try:
+            data = json.loads(Path(sp).read_text(encoding="utf-8"))
+            p = (data.get("ui_meta", {}) or {}).get("phase")
+            if phase != "all" and p and p != phase:
+                continue
+            metrics = _phase_metrics_from_run(Path(sp).parent)
+            metrics.update({
+                "status": r.get("status"),
+                "summary_path": sp,
+                "phase": p or "unknown",
+            })
+            out.append(metrics)
+        except Exception:
+            continue
+    return sorted(out, key=lambda x: x.get("run", ""), reverse=True)
+
+
+@app.post("/phases/{phase}/winner")
+async def set_phase_winner(phase: str, body: Dict[str, Any]):
+    """Mark a run_dir as the winner for a phase; store small registry file for inheritance visualization."""
+    run_dir = body.get("run_dir")
+    if not run_dir:
+        raise HTTPException(400, detail="run_dir required")
+    p = Path(run_dir)
+    if not p.exists():
+        raise HTTPException(404, detail="run_dir not found")
+    registry = Path(__file__).resolve().parents[1] / "pipeline_runs" / "phase_winners.json"
+    try:
+        reg = json.loads(registry.read_text(encoding="utf-8")) if registry.exists() else {}
+    except Exception:
+        reg = {}
+    reg[str(phase)] = str(p)
+    registry.write_text(json.dumps(reg, indent=2), encoding="utf-8")
+    return {"status": "ok", "phase": phase, "run_dir": str(p)}
+
+
+@app.get("/phases/winners")
+async def get_phase_winners():
+    registry = Path(__file__).resolve().parents[1] / "pipeline_runs" / "phase_winners.json"
+    try:
+        reg = json.loads(registry.read_text(encoding="utf-8")) if registry.exists() else {}
+    except Exception:
+        reg = {}
+    return reg
+
+
+@app.get("/runs/{run_name}/lineage")
+async def get_run_lineage(run_name: str):
+    base = Path(__file__).resolve().parents[1] / "pipeline_runs" / run_name
+    summary = base / "run_summary.json"
+    if not summary.exists():
+        raise HTTPException(404, detail="summary not found")
+    data = json.loads(summary.read_text(encoding="utf-8", errors="ignore"))
+    ui = data.get("ui_meta", {}) or {}
+    inherit = ui.get("inheritance", {}) or {}
+    # Derive inbound lineage by scanning winners registry
+    winners = await get_phase_winners()
+    return {"inheritance": inherit, "phase": ui.get("phase"), "winners": winners}
 
 
 def _analyze_parquet(path: Path):

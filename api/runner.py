@@ -60,7 +60,14 @@ class RunManager:
         run_dir = RUNS_DIR / f"run_{time.strftime('%Y%m%d_%H%M%S')}_{run_suffix}_{run_id[:8]}"
         run_dir.mkdir(parents=True, exist_ok=True)
         logs_path = run_dir / "logs.log"
-        record = RunRecord(id=run_id, created_at=timestamp, status="PENDING", params=req, run_dir=run_dir, logs_path=logs_path)
+        record = RunRecord(
+            id=run_id,
+            created_at=timestamp,
+            status="PENDING",
+            params=req,
+            run_dir=run_dir,
+            logs_path=logs_path,
+        )
         with self._lock:
             self._runs[run_id] = record
         threading.Thread(target=self._run_thread, args=(run_id,), daemon=True).start()
@@ -118,6 +125,24 @@ class RunManager:
             # Save summary if present
             summary = record.run_dir / "run_summary.json"
             if summary.exists():
+                # Patch-in phase and lineage for UI if not present
+                try:
+                    import json
+                    data = json.loads(summary.read_text(encoding="utf-8"))
+                    data.setdefault("ui_meta", {})
+                    if getattr(record.params, "phase", None):
+                        data["ui_meta"]["phase"] = record.params.phase
+                    # Attempt to infer lineage from reused stages
+                    lineage = {}
+                    if getattr(record.params, "stage1_from", None):
+                        lineage["stage1_from"] = str(record.params.stage1_from)
+                    if getattr(record.params, "stage2_from", None):
+                        lineage["stage2_from"] = str(record.params.stage2_from)
+                    if lineage:
+                        data["ui_meta"]["inheritance"] = lineage
+                    summary.write_text(json.dumps(data, indent=2))
+                except Exception:
+                    pass
                 record.result = {"summary_path": str(summary)}
             self._runs[run_id] = record
 

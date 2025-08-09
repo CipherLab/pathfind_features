@@ -5,6 +5,9 @@ from pathlib import Path
 
 RunStatus = Literal["PENDING", "RUNNING", "SUCCESS", "ERROR", "CANCELLED"]
 
+Phase = Literal["full", "target", "pathfinding", "features"]
+
+
 @dataclass
 class RunRequest:
     input_data: str
@@ -12,6 +15,8 @@ class RunRequest:
     run_name: Optional[str] = None
     stage1_from: Optional[str] = None
     stage2_from: Optional[str] = None
+    # Optional phase hint: controls UI semantics; runner still invokes unified pipeline
+    phase: Optional[Phase] = None
     force: bool = False
     skip_walk_forward: bool = False
     max_new_features: int = 20

@@ -80,7 +80,7 @@ export default function ArtifactPicker({ label, value, onChange, includeExts, st
         onChange={e => onChange(e.target.value)}
       >
         <option value="">(choose from suggestions)</option>
-        {!allOptions.some(o => o.value === value) && value && (
+        {!valueInOptions && value && (
           <option value={value}>{value}</option>
         )}
         {allOptions.length > 0 && (

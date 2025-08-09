@@ -14,8 +14,8 @@ import { ReactFlow,
   Handle,
   Position,
   NodeProps,
-  NodeTypes,
 } from '@xyflow/react'
+import type { NodeTypes } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import ParameterForm from '../components/Wizard/ParameterForm'
 import GlobalPickerModal from '../components/Wizard/GlobalPickerModal'

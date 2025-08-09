@@ -14,6 +14,7 @@ import { ReactFlow,
   Handle,
   Position,
   NodeProps,
+  NodeTypes,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import ParameterForm from '../components/Wizard/ParameterForm'
@@ -202,6 +203,34 @@ export default function BuilderPage(){
     setSelection(n)
   }, [nodes.length])
 
+  const propagateArtifacts = useCallback((src: Node<NodeData>) => {
+    setNodes((ns: Node<NodeData>[]) => {
+      let updated = ns
+      if (src.data.kind === 'target-discovery') {
+        const downstream = edges.filter((e) => e.source === src.id).map((e) => e.target)
+        updated = ns.map((n) => {
+          if (downstream.includes(n.id) && n.data.kind === 'pathfinding') {
+            const cfg = { ...n.data.config, inheritTargetsFrom: src.id, targetsJson: 'target_discovery.json' }
+            const status = n.data.status === 'idle' ? 'configured' : n.data.status
+            return { ...n, data: { ...n.data, config: cfg, status } }
+          }
+          return n
+        })
+      } else if (src.data.kind === 'pathfinding') {
+        const downstream = edges.filter((e) => e.source === src.id).map((e) => e.target)
+        updated = ns.map((n) => {
+          if (downstream.includes(n.id) && n.data.kind === 'feature-engineering') {
+            const cfg = { ...n.data.config, inheritRelationshipsFrom: src.id, relationshipsJson: 'relationships.json' }
+            const status = n.data.status === 'idle' ? 'configured' : n.data.status
+            return { ...n, data: { ...n.data, config: cfg, status } }
+          }
+          return n
+        })
+      }
+      return updated
+    })
+  }, [edges, setNodes])
+
   const onRunNode = useCallback(async()=>{
     if (!selection) return
     // For now, just show a command preview and call the same /runs endpoint when the node is the first stage
@@ -222,14 +251,15 @@ export default function BuilderPage(){
           smoke_feature_limit: cfg.smokeFeat,
           seed: cfg.seed ?? 42,
         }
-  setNodes((ns: Node<NodeData>[])=> ns.map((n: Node<NodeData>)=> n.id===selection.id? { ...n, data: { ...n.data, status: 'running' as NodeStatus } }: n))
+        setNodes((ns: Node<NodeData>[])=> ns.map((n: Node<NodeData>)=> n.id===selection.id? { ...n, data: { ...n.data, status: 'running' as NodeStatus } }: n))
         await jpost('/runs', payload)
-  setNodes((ns: Node<NodeData>[])=> ns.map((n: Node<NodeData>)=> n.id===selection.id? { ...n, data: { ...n.data, status: 'complete' as NodeStatus } }: n))
+        setNodes((ns: Node<NodeData>[])=> ns.map((n: Node<NodeData>)=> n.id===selection.id? { ...n, data: { ...n.data, status: 'complete' as NodeStatus } }: n))
+        propagateArtifacts(selection)
       }catch{
-  setNodes((ns: Node<NodeData>[])=> ns.map((n: Node<NodeData>)=> n.id===selection.id? { ...n, data: { ...n.data, status: 'failed' as NodeStatus } }: n))
+        setNodes((ns: Node<NodeData>[])=> ns.map((n: Node<NodeData>)=> n.id===selection.id? { ...n, data: { ...n.data, status: 'failed' as NodeStatus } }: n))
       }
     }
-  }, [selection])
+  }, [selection, propagateArtifacts])
 
   const onUpdateSelection = useCallback((updater: (prev: NodeData) => NodeData)=>{
     if (!selection) return

@@ -50,6 +50,17 @@ const allowsConnection = (a: NodeKind, b: NodeKind) => {
   return idx !== -1 && connectionOrder[idx + 1] === b
 }
 
+// Validate a potential connection between two nodes. Used both during drag previews
+// and when establishing a final connection. Only allow edges that follow the
+// canonical Data Source → Target Discovery → Pathfinding → Feature Engineering → Output order.
+function isValidConnection(conn: Connection, ns: Node<NodeData>[]) {
+  if (!conn.source || !conn.target) return false
+  const src = ns.find(n => n.id === conn.source)
+  const tgt = ns.find(n => n.id === conn.target)
+  if (!src || !tgt) return false
+  return allowsConnection(src.data.kind, tgt.data.kind)
+}
+
 // Basic node renderer used for all nodes initially
 function StatusDot({ s }: { s: NodeStatus }) {
   const cls: Record<NodeStatus, string> = {
@@ -64,6 +75,7 @@ function StatusDot({ s }: { s: NodeStatus }) {
 
 
 function NodeCard({ data }: NodeProps<NodeData>) {
+  const { getNodes } = useReactFlow<NodeData>()
   const icon =
     data.kind === 'data-source'
       ? '📁'
@@ -96,7 +108,11 @@ function NodeCard({ data }: NodeProps<NodeData>) {
           {data.config.summary}
         </div>
       )}
-      <Handle type="source" position={Position.Right} isValidConnection={conn => isValidConnection(conn, nodes)} />
+      <Handle
+        type="source"
+        position={Position.Right}
+        isValidConnection={conn => isValidConnection(conn, getNodes())}
+      />
     </div>
   )
 }

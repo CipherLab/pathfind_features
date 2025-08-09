@@ -47,7 +47,7 @@ export default function WizardPage(){
         const anypq = [...names].find(n=> n.endsWith('.parquet'))
         if (!ignore) setInputData(train? `pipeline_runs/${reuse}/${train}` : (anypq? `pipeline_runs/${reuse}/${anypq}`: inputData))
         // Suggest a new run name based on reuse
-        if (!ignore) setRunName(`${reuse}_re${Math.floor(Math.random()*1000)}`.slice(0,60))
+        if (!ignore) setRunName(`${reuse}_re${Math.floor(Math.random()*1000)}`.slice(0,MAX_RUN_NAME_LENGTH))
         if (!ignore) { setStage1FromRun(reuse); setStage2FromRun(reuse) }
       }catch{}
     })()

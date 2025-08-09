@@ -27,6 +27,7 @@ export default function WizardPage(){
   const [stage1FromRun, setStage1FromRun] = useState('')
   const [stage2FromRun, setStage2FromRun] = useState('')
   const [hasRunning, setHasRunning] = useState(false)
+  const [step, setStep] = useState(1)
   useEffect(()=>{ (async()=>{ try{ const list = await jget<any[]>(`/runs/list-fs`); setPrevious(list.map(x=> x.name)) }catch{} })() }, [])
 
   // When a run is selected for reuse, try to infer artifacts and map to parameters
@@ -46,7 +47,8 @@ export default function WizardPage(){
         const anypq = [...names].find(n=> n.endsWith('.parquet'))
         if (!ignore) setInputData(train? `pipeline_runs/${reuse}/${train}` : (anypq? `pipeline_runs/${reuse}/${anypq}`: inputData))
         // Suggest a new run name based on reuse
-        if (!ignore) setRunName(`${reuse}_re${Math.floor(Math.random()*1000)}`)
+        if (!ignore) setRunName(`${reuse}_re${Math.floor(Math.random()*1000)}`.slice(0,60))
+        if (!ignore) { setStage1FromRun(reuse); setStage2FromRun(reuse) }
       }catch{}
     })()
     return ()=>{ ignore=true }
@@ -84,15 +86,26 @@ export default function WizardPage(){
   }
 
   return (
-    <div>
-  <Link to="/">← Back</Link>
-      <div className="mt8"><ActiveRuns onHasRunning={setHasRunning} /></div>
-      <div className="mt8 row">
-        <StageSelector previousRuns={previous} value={reuse} onChange={setReuse} label="Reuse from run" />
-  <StageSelector previousRuns={previous} value={stage1FromRun} onChange={setStage1FromRun} label="Stage 1 from run" />
-  <StageSelector previousRuns={previous} value={stage2FromRun} onChange={setStage2FromRun} label="Stage 2 from run" />
+    <div className="space-y-4">
+      <Link to="/">← Back</Link>
+      <div className="mt-2"><ActiveRuns onHasRunning={setHasRunning} /></div>
+      <div className="flex gap-2 text-sm">
+        {['Select Run','Configure','Review'].map((t,i)=> (
+          <div key={t} className={`px-3 py-1 rounded-full ${step===i+1? 'bg-blue-600 text-white':'bg-slate-700 text-slate-300'}`}>{i+1}. {t}</div>
+        ))}
       </div>
-      <div className="mt8">
+
+      {step===1 && (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap gap-4">
+            <StageSelector previousRuns={previous} value={reuse} onChange={setReuse} label="Reuse from run" />
+            <StageSelector previousRuns={previous} value={stage1FromRun} onChange={setStage1FromRun} label="Stage 1 from run" />
+            <StageSelector previousRuns={previous} value={stage2FromRun} onChange={setStage2FromRun} label="Stage 2 from run" />
+          </div>
+        </div>
+      )}
+
+      {step===2 && (
         <ParameterForm
           inputData={inputData} setInputData={setInputData}
           featuresJson={featuresJson} setFeaturesJson={setFeaturesJson}
@@ -106,10 +119,20 @@ export default function WizardPage(){
           smokeFeat={smokeFeat} setSmokeFeat={setSmokeFeat}
           seed={seed} setSeed={setSeed}
         />
+      )}
+
+      {step===3 && (
+        <>
+          <CommandPreview cmd={`./.venv/bin/python run_pipeline.py run --input-data ${inputData} --features-json ${featuresJson} --run-name ${runName}${stage1FromRun? ` --stage1-from pipeline_runs/${stage1FromRun}`:''}${stage2FromRun? ` --stage2-from pipeline_runs/${stage2FromRun}`:''} --max-new-features ${maxNew}${disablePF? ' --disable-pathfinding':''}${pretty? ' --pretty':''}${smoke? ` --smoke-mode --smoke-max-eras ${smokeEras} --smoke-row-limit ${smokeRows} --smoke-feature-limit ${smokeFeat}`:''} --seed ${seed}`} />
+          <button disabled={busy || hasRunning} onClick={submit} className="btn btn-primary">{hasRunning? 'Busy (wait for active run)':'Start'}</button>
+          {msg && <div className="mt-2">{msg}</div>}
+        </>
+      )}
+
+      <div className="flex justify-between pt-4">
+        <button className="btn" disabled={step===1} onClick={()=>setStep(s=>Math.max(1,s-1))}>Back</button>
+        {step<3 && <button className="btn btn-primary" onClick={()=>setStep(s=>Math.min(3,s+1))}>Next</button>}
       </div>
-  <CommandPreview cmd={`./.venv/bin/python run_pipeline.py run --input-data ${inputData} --features-json ${featuresJson} --run-name ${runName}${stage1FromRun? ` --stage1-from pipeline_runs/${stage1FromRun}`:''}${stage2FromRun? ` --stage2-from pipeline_runs/${stage2FromRun}`:''} --max-new-features ${maxNew}${disablePF? ' --disable-pathfinding':''}${pretty? ' --pretty':''}${smoke? ` --smoke-mode --smoke-max-eras ${smokeEras} --smoke-row-limit ${smokeRows} --smoke-feature-limit ${smokeFeat}`:''} --seed ${seed}`} />
-  <button disabled={busy || hasRunning} onClick={submit} className="mt8 btn btn-primary">{hasRunning? 'Busy (wait for active run)':'Start'}</button>
-      {msg && <div className="mt8">{msg}</div>}
     </div>
   )
 }

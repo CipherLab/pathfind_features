@@ -133,3 +133,5 @@ pipeline_runs/
 node_modules
 
 package-lock.json
+!web/src/ui/lib/
+!web/src/ui/lib/api.ts

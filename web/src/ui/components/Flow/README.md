@@ -1,7 +1,7 @@
 # Flow Helpers
 
 This folder will contain custom flow nodes and small helpers. For now the BuilderPage uses a generic NodeCard.
-Checklist
+## Checklist
 
 React Flow canvas and layout: Done
 Node palette with draggable/addable types: Done (buttons to add for now)

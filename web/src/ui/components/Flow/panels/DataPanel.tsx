@@ -23,23 +23,6 @@ export default function DataPanel({ cfg, updateData }: Props) {
           Parquet file containing the training rows.
         </div>
       </div>
-      <label className="flex flex-col gap-2">
-        <span className="text-sm">Run name</span>
-        <input
-          className="input"
-          value={cfg.runName}
-          onChange={e => updateData({ runName: e.target.value })}
-        />
-      </label>
-      <label className="flex flex-col gap-2">
-        <span className="text-sm">Seed</span>
-        <input
-          className="input"
-          type="number"
-          value={cfg.seed}
-          onChange={e => updateData({ seed: parseInt(e.target.value || '0', 10) })}
-        />
-      </label>
       {open && (
         <GlobalPickerModal
           mode="parquet"

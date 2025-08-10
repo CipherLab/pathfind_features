@@ -60,7 +60,7 @@ def list_transforms() -> List[Dict[str, str]]:
             })
     return transforms
 
-def execute_transform(input_data: str, transform_script: str, output_data: str) -> int:
+def execute_transform(input_data: str, transform_script: str, output_data: str) -> dict:
     # The transform_script is the actual python code, so we need to save it to a temporary file
     # and pass the file path to the execute_transform.py script.
     
@@ -74,6 +74,17 @@ def execute_transform(input_data: str, transform_script: str, output_data: str) 
             "--output-data", output_data]
     
     try:
-        return subprocess.call(args, cwd=str(ROOT))
+        result = subprocess.run(args, cwd=str(ROOT), capture_output=True, text=True)
+        return {
+            "code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
     finally:
         os.remove(script_path)
+
+def move_file(source: str, destination: str) -> int:
+    args = [PY, str(ROOT/"move_file.py"),
+            "--source", source,
+            "--destination", destination]
+    return subprocess.call(args, cwd=str(ROOT))

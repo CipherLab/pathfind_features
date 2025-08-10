@@ -4,6 +4,7 @@ import { jget } from '../../../lib/api'
 interface TransformConfig {
   script?: string;
   outputPath?: string;
+  logs?: string;
 }
 
 type Props = {
@@ -18,6 +19,7 @@ interface TransformDef {
 
 export default function TransformPanel({ cfg, updateData }: Props) {
   const [transforms, setTransforms] = useState<TransformDef[]>([]);
+  const [showConsole, setShowConsole] = useState(false);
 
   useEffect(() => {
     jget<TransformDef[]>('/transforms')
@@ -58,6 +60,21 @@ export default function TransformPanel({ cfg, updateData }: Props) {
           </button>
         ))}
       </div>
+      {cfg.logs && (
+        <div>
+          <button
+            className="text-sm text-slate-300 hover:text-slate-100"
+            onClick={() => setShowConsole(!showConsole)}
+          >
+            {showConsole ? 'Hide' : 'Show'} Console Output
+          </button>
+          {showConsole && (
+            <pre className="text-xs text-slate-400 bg-slate-800 p-2 rounded-md mt-2">
+              {cfg.logs}
+            </pre>
+          )}
+        </div>
+      )}
     </div>
   )
 }

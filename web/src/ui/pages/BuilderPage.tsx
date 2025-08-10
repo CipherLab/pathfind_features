@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { ReactFlowInstance } from '@xyflow/react';
-import { Node } from '@xyflow/react';
+import { Node, Edge } from '@xyflow/react';
 import { usePipelineState } from '../hooks/usePipelineState';
 import { usePipelineRunner } from '../hooks/usePipelineRunner';
 import { PipelineCanvas } from '../components/Pipeline/PipelineCanvas';
@@ -23,16 +23,29 @@ export default function BuilderPage() {
     onEdgeDoubleClick,
     onUpdateSelection,
     setNodes,
+    setEdges,
     setSelection,
   } = usePipelineState();
+
+  const [experimentName, setExperimentName] = useState('my_experiment');
+  const [seed, setSeed] = useState(42);
 
   const {
     progress,
     runNode,
     onRunPipeline,
-  } = usePipelineRunner(nodes, edges, setNodes);
+  } = usePipelineRunner(nodes, edges, setNodes, experimentName, seed);
 
   const [rf, setRf] = useState<ReactFlowInstance<Node<NodeData>, Edge> | null>(null);
+
+  useEffect(() => {
+    if (selection) {
+      const selectedNode = nodes.find(n => n.id === selection.id);
+      if (selectedNode) {
+        setSelection(selectedNode);
+      }
+    }
+  }, [nodes, selection, setSelection]);
 
   const onRunNode = useCallback(async () => {
     if (!selection) return;
@@ -41,8 +54,9 @@ export default function BuilderPage() {
 
   const onClear = useCallback(() => {
     setNodes([]);
+    setEdges([]);
     setSelection(null);
-  }, [setNodes, setSelection]);
+  }, [setNodes, setEdges, setSelection]);
 
   const onNodesDelete = useCallback(() => {
     if (selection) {
@@ -70,13 +84,53 @@ export default function BuilderPage() {
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
+  const onSave = useCallback(() => {
+    const state = { nodes, edges, experimentName, seed };
+    const json = JSON.stringify(state, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${experimentName}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [nodes, edges, experimentName, seed]);
+
+  const onLoad = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = e.target?.result;
+        if (typeof content === 'string') {
+          const { nodes: loadedNodes, edges: loadedEdges, experimentName: loadedExperimentName, seed: loadedSeed } = JSON.parse(content);
+          setNodes(loadedNodes || []);
+          setEdges(loadedEdges || []);
+          setExperimentName(loadedExperimentName || 'my_experiment');
+          setSeed(loadedSeed || 42);
+        }
+      };
+      reader.readAsText(file);
+    }
+  }, [setNodes, setEdges, setExperimentName, setSeed]);
+
   return (
     <div className="flex h-[calc(100vh-120px)] gap-2">
       <div className="w-56 shrink-0">
         <NodePalette onAdd={addNode} />
       </div>
       <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-slate-700 bg-slate-900/40">
-        <PipelineToolbar onRunPipeline={onRunPipeline} onClear={onClear} progress={progress} />
+        <PipelineToolbar 
+          experimentName={experimentName}
+          onExperimentNameChange={setExperimentName}
+          seed={seed}
+          onSeedChange={setSeed}
+          onRunPipeline={onRunPipeline} 
+          onClear={onClear} 
+          onSave={onSave} 
+          onLoad={onLoad} 
+          progress={progress} 
+        />
         <div className="relative min-h-0 flex-1">
           <PipelineCanvas
             nodes={nodes}

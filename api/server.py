@@ -20,6 +20,7 @@ app = FastAPI(title="Pathfind Features API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_origin_regex='http://localhost:.*',
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -68,6 +69,10 @@ class TransformExecuteReq(BaseModel):
     transform_script: str
     output_data: str
 
+class MoveFileReq(BaseModel):
+    source: str
+    destination: str
+
 
 # (lane planning models removed)
 
@@ -85,14 +90,27 @@ async def get_transforms():
 
 @app.post("/transforms/execute")
 async def execute_transform(body: TransformExecuteReq):
-    code = ops.execute_transform(
+    result = ops.execute_transform(
         body.input_data,
         body.transform_script,
         body.output_data,
     )
+    if result["code"] != 0:
+        raise HTTPException(500, detail=f"transform script failed with exit {result['code']}\n{result['stderr']}")
+    return {
+        "status": "ok",
+        "output": body.output_data,
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+    }
+
+@app.post("/files/move")
+async def move_file(body: MoveFileReq):
+    code = ops.move_file(body.source, body.destination)
     if code != 0:
-        raise HTTPException(500, detail=f"transform script failed with exit {code}")
-    return {"status": "ok", "output": body.output_data}
+        raise HTTPException(500, detail=f"move file failed with exit {code}")
+    return {"status": "ok"}
+
 
 @app.get("/runs")
 async def list_runs():

@@ -1,14 +1,32 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useNodesState, useEdgesState, addEdge, Connection, Edge, Node } from '@xyflow/react';
 import { NodeData, NodeKind } from '../components/Flow/types';
 import { isValidConnection } from '../components/Flow/validation';
 import { HandleTypes, NodeConstraints } from '../components/Flow/node-spec';
+
+const LOCAL_STORAGE_KEY = 'pipelineState';
 
 export function usePipelineState() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selection, setSelection] = useState<Node<NodeData> | null>(null);
   const idRef = useRef(1);
+
+  useEffect(() => {
+    const storedState = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (storedState) {
+      const { nodes: storedNodes, edges: storedEdges } = JSON.parse(storedState);
+      setNodes(storedNodes || []);
+      setEdges(storedEdges || []);
+    }
+  }, [setNodes, setEdges]);
+
+  useEffect(() => {
+    if (nodes.length > 0 || edges.length > 0) {
+      const state = { nodes, edges };
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
+    }
+  }, [nodes, edges]);
 
   const onConnect = useCallback(
     (conn: Connection) => {

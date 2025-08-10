@@ -185,7 +185,7 @@ export const NodeConstraints: Record<
       {
         id: "in-parquet",
         type: "PARQUET",
-        label: "data.parquet",
+        label: "input.parquet",
         required: true,
       },
     ],
@@ -201,7 +201,7 @@ export const NodeConstraints: Record<
       {
         id: "in-parquet",
         type: "PARQUET",
-        label: "data.parquet",
+        label: "input.parquet",
         required: true,
       },
       {
@@ -223,7 +223,7 @@ export const NodeConstraints: Record<
       {
         id: "in-parquet",
         type: "PARQUET",
-        label: "data.parquet",
+        label: "input.parquet",
         required: true,
       },
     ],

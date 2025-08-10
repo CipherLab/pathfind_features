@@ -13,6 +13,7 @@ export type NodeKind =
 export type NodeStatus =
   | "idle"
   | "configured"
+  | "pending"
   | "running"
   | "complete"
   | "failed"

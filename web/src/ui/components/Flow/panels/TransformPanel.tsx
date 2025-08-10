@@ -1,7 +1,11 @@
 import React from 'react'
 
+interface TransformConfig {
+  script?: string
+}
+
 type Props = {
-  cfg: any
+  cfg: TransformConfig
   updateData: (patch: any) => void
 }
 

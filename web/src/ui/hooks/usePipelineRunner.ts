@@ -100,7 +100,7 @@ export function usePipelineRunner(
           updated = ns.map((n) => {
             if (downstream.includes(n.id)) {
               const cfg = {
-                ...n.data.config,
+                ...(n.data.config || {}),
                 inputData: src.data.config.outputPath,
               };
               const status = (

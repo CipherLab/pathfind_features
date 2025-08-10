@@ -1,7 +1,12 @@
 import React from 'react'
 
+interface ValidationConfig {
+  split?: number
+  metrics?: string
+}
+
 type Props = {
-  cfg: any
+  cfg: ValidationConfig
   updateData: (patch: any) => void
 }
 

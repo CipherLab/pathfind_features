@@ -83,8 +83,8 @@ export function usePipelineState() {
         type: 'appNode',
         position: position ?? { x: 140 + nodes.length * 50, y: 100 + nodes.length * 20 },
         data: { kind, title, status: 'idle', statusText: '', config: {} },
-        sourcePosition: 'right' as any,
-        targetPosition: 'left' as any,
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
       };
       setNodes((ns: Node<NodeData>[]) => [...ns, n]);
       setSelection(n);

@@ -4,6 +4,9 @@ export type NodeKind =
   | "target-discovery"
   | "pathfinding"
   | "feature-engineering"
+  | "transform"
+  | "train"
+  | "validate"
   | "output";
 
 export type NodeStatus =

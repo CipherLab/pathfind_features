@@ -86,6 +86,12 @@ export default function BuilderPage() {
           ? 'Pathfinding'
           : kind === 'feature-engineering'
           ? 'Feature Engineering'
+          : kind === 'transform'
+          ? 'Transform'
+          : kind === 'train'
+          ? 'Train'
+          : kind === 'validate'
+          ? 'Validate'
           : 'Output'
   const n: Node<NodeData> = {
         id,
@@ -337,6 +343,20 @@ export default function BuilderPage() {
     setSelection(null)
   }, [setNodes, setEdges])
 
+  const deleteSelection = useCallback(() => {
+    if (!selection) return
+    setNodes(ns => ns.filter(n => n.id !== selection.id))
+    setEdges(es => es.filter(e => e.source !== selection.id && e.target !== selection.id))
+    setSelection(null)
+  }, [selection, setNodes, setEdges])
+
+  const onEdgeDoubleClick = useCallback(
+    (_: React.MouseEvent, edge: Edge) => {
+      setEdges(es => es.filter(e => e.id !== edge.id))
+    },
+    [setEdges]
+  )
+
   
 
   // DnD handlers
@@ -370,6 +390,11 @@ export default function BuilderPage() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onEdgeDoubleClick={onEdgeDoubleClick}
+            deleteKeyCode={[ 'Backspace', 'Delete' ]}
+            onNodesDelete={nd => {
+              if (selection && nd.some(n => n.id === selection.id)) setSelection(null)
+            }}
             nodeTypes={nodeTypes}
             onNodeClick={(_evt: React.MouseEvent, n: Node<NodeData>) => setSelection(n)}
             onInit={setRf}
@@ -385,9 +410,15 @@ export default function BuilderPage() {
           
         </div>
       </div>
-      <div className="w-[420px] shrink-0 rounded-lg border border-slate-700 bg-slate-900/60">
-        <Sidebar selection={selection} onUpdate={onUpdateSelection} onRun={onRunNode} />
-      </div>
+        <div className="w-[420px] shrink-0 rounded-lg border border-slate-700 bg-slate-900/60">
+          <Sidebar
+            selection={selection}
+            edges={edges}
+            onUpdate={onUpdateSelection}
+            onRun={onRunNode}
+            onDelete={deleteSelection}
+          />
+        </div>
     </div>
   )
 }

@@ -1,6 +1,7 @@
 // Types
 export type NodeKind =
   | "data-source"
+  | "feature-selection"
   | "target-discovery"
   | "pathfinding"
   | "feature-engineering"

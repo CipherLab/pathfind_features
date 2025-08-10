@@ -310,6 +310,9 @@ export default function Sidebar({ selection, edges, onUpdate, onRun, onDelete }:
         {selection.data.kind === 'target-discovery' && (
           <TargetsPanel cfg={cfg} updateData={updateData} />
         )}
+        {selection.data.kind === 'feature-selection' && (
+          <FeatureSourcePanel cfg={cfg} updateData={updateData} />
+        )}
         {selection.data.kind === 'pathfinding' && (
           <PathfindPanel cfg={cfg} updateData={updateData} />
         )}

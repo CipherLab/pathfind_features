@@ -80,6 +80,8 @@ export default function BuilderPage() {
       const title =
         kind === 'data-source'
           ? 'Data Source'
+          : kind === 'feature-selection'
+          ? 'Features'
           : kind === 'target-discovery'
           ? 'Target Discovery'
           : kind === 'pathfinding'
@@ -126,25 +128,25 @@ export default function BuilderPage() {
             missing.push(inp.label)
             continue
           }
-          const up = inc ? nodeMap.get(inc.source) : undefined
+          const up = nodeMap.get(inc.source)
           if (!up || up.data.status === 'failed' || up.data.status === 'blocked' || up.data.status === 'idle') {
             missing.push(inp.label)
           }
         }
-        // preserve running/complete/failed; otherwise flip between blocked/configured/idle
+        // preserve running/complete/failed
         if (n.data.status === 'running' || n.data.status === 'complete' || n.data.status === 'failed') return n
+        const configured = n.data.config && Object.keys(n.data.config).length > 0
         if (missing.length > 0) {
           return {
             ...n,
             data: { ...n.data, status: 'blocked' as NodeStatus, statusText: `Missing: ${missing.join(', ')}` },
           }
         }
-        // if previously blocked and now satisfied, become configured if had config
-        if (n.data.status === 'blocked') {
-          const configured = n.data.config && Object.keys(n.data.config).length > 0
-          return { ...n, data: { ...n.data, status: (configured ? 'configured' : 'idle') as NodeStatus, statusText: '' } }
+        // no missing inputs; set status based on config
+        return {
+          ...n,
+          data: { ...n.data, status: (configured ? 'configured' : 'idle') as NodeStatus, statusText: '' },
         }
-        return n
       })
       return next
     })
@@ -183,6 +185,20 @@ export default function BuilderPage() {
             }
             return n
           })
+        } else if (src.data.kind === 'feature-selection') {
+          const downstream = edges.filter(e => e.source === src.id).map(e => e.target)
+          updated = ns.map(n => {
+            if (downstream.includes(n.id) && n.data.kind === 'target-discovery') {
+              const cfg = {
+                ...n.data.config,
+                inheritFeaturesFrom: src.id,
+                featuresJson: src.data.config?.featuresJson,
+              }
+              const status = (n.data.status === 'idle' ? 'configured' : n.data.status) as NodeStatus
+              return { ...n, data: { ...n.data, config: cfg, status } }
+            }
+            return n
+          })
         }
         return updated
       })
@@ -207,6 +223,8 @@ export default function BuilderPage() {
                   statusText:
                     data.kind === 'target-discovery'
                       ? 'Running target discovery...'
+                      : data.kind === 'feature-selection'
+                      ? 'Loading features...'
                       : data.kind === 'pathfinding'
                       ? 'Exploring relationships...'
                       : data.kind === 'feature-engineering'
@@ -251,6 +269,8 @@ export default function BuilderPage() {
                     statusText:
                       data.kind === 'target-discovery'
                         ? '✅ Targets discovered'
+                        : data.kind === 'feature-selection'
+                        ? '✅ Features selected'
                         : data.kind === 'pathfinding'
                         ? '✅ Relationships mapped'
                         : data.kind === 'feature-engineering'
@@ -263,7 +283,11 @@ export default function BuilderPage() {
         )
 
         // propagate outputs to downstream nodes when relevant
-        if (data.kind === 'target-discovery' || data.kind === 'pathfinding') {
+        if (
+          data.kind === 'target-discovery' ||
+          data.kind === 'pathfinding' ||
+          data.kind === 'feature-selection'
+        ) {
           propagateArtifacts(node)
         }
       } catch (e: any) {

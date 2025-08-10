@@ -23,34 +23,6 @@ function InputOutputSection({ selection, edges }: { selection: Node<NodeData>; e
   if (!selection) return null
   const constraints = NodeConstraints[selection.data.kind]
   const panelConfig = NodePanelConfigs[selection.data.kind]
-  const styleFor = (t: PayloadType, ghost = false): React.CSSProperties => {
-    const base: React.CSSProperties = {
-      background: HandleTypes[t].color,
-      border: `2px solid ${HandleTypes[t].color}`,
-      width: 10,
-      height: 10,
-      opacity: ghost ? 0.5 : 1,
-    }
-    switch (HandleTypes[t].shape) {
-      case 'circle':
-        base.borderRadius = 999
-        break
-      case 'square':
-        base.borderRadius = 2
-        break
-      case 'diamond':
-        base.transform = 'rotate(45deg)'
-        base.borderRadius = 2
-        break
-      case 'star':
-        base.clipPath = 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)'
-        break
-      case 'triangle':
-        base.clipPath = 'polygon(50% 0%, 0% 100%, 100% 100%)'
-        break
-    }
-    return base
-  }
   return (
     <div className="space-y-4">
       {constraints.inputs.length > 0 && (

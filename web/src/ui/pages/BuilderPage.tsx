@@ -120,25 +120,25 @@ export default function BuilderPage() {
             missing.push(inp.label)
             continue
           }
-          const up = inc ? nodeMap.get(inc.source) : undefined
+          const up = nodeMap.get(inc.source)
           if (!up || up.data.status === 'failed' || up.data.status === 'blocked' || up.data.status === 'idle') {
             missing.push(inp.label)
           }
         }
-        // preserve running/complete/failed; otherwise flip between blocked/configured/idle
+        // preserve running/complete/failed
         if (n.data.status === 'running' || n.data.status === 'complete' || n.data.status === 'failed') return n
+        const configured = n.data.config && Object.keys(n.data.config).length > 0
         if (missing.length > 0) {
           return {
             ...n,
             data: { ...n.data, status: 'blocked' as NodeStatus, statusText: `Missing: ${missing.join(', ')}` },
           }
         }
-        // if previously blocked and now satisfied, become configured if had config
-        if (n.data.status === 'blocked') {
-          const configured = n.data.config && Object.keys(n.data.config).length > 0
-          return { ...n, data: { ...n.data, status: (configured ? 'configured' : 'idle') as NodeStatus, statusText: '' } }
+        // no missing inputs; set status based on config
+        return {
+          ...n,
+          data: { ...n.data, status: (configured ? 'configured' : 'idle') as NodeStatus, statusText: '' },
         }
-        return n
       })
       return next
     })

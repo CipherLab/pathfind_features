@@ -1,7 +1,12 @@
 import React from 'react'
 
+interface TrainConfig {
+  learningRate?: number
+  epochs?: number
+}
+
 type Props = {
-  cfg: any
+  cfg: TrainConfig
   updateData: (patch: any) => void
 }
 

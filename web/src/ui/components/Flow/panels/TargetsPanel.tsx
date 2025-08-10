@@ -9,7 +9,9 @@ export default function TargetsPanel({ cfg, updateData }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <div className="text-xs text-slate-400">
-        Inherits features.json from an upstream features node.
+        {cfg.inheritFeaturesFrom
+          ? `Inherits features.json from ${cfg.inheritFeaturesFrom === true ? 'an upstream features node' : cfg.inheritFeaturesFrom}.`
+          : 'Does not inherit features.json from any upstream node.'}
       </div>
       <div>
         <div className="text-sm font-medium mb-2">Performance Mode</div>

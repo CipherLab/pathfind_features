@@ -6,6 +6,7 @@ import DataPanel from './panels/DataPanel'
 import TargetsPanel from './panels/TargetsPanel'
 import PathfindPanel from './panels/PathfindPanel'
 import FeaturesPanel from './panels/FeaturesPanel'
+import FeatureSourcePanel from './panels/FeatureSourcePanel'
 import OutputPanel from './panels/OutputPanel'
 
 type Props = {
@@ -300,6 +301,9 @@ export default function Sidebar({ selection, onUpdate, onRun }: Props) {
         )}
         {selection.data.kind === 'target-discovery' && (
           <TargetsPanel cfg={cfg} updateData={updateData} />
+        )}
+        {selection.data.kind === 'feature-selection' && (
+          <FeatureSourcePanel cfg={cfg} updateData={updateData} />
         )}
         {selection.data.kind === 'pathfinding' && (
           <PathfindPanel cfg={cfg} updateData={updateData} />

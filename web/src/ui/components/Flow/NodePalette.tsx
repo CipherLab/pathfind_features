@@ -8,9 +8,10 @@ type Props = {
 export default function NodePalette({ onAdd }: Props) {
   const items: { kind: NodeKind; label: string; icon: string }[] = [
     { kind: 'data-source', label: 'Data', icon: '📁' },
+    { kind: 'feature-selection', label: 'Features', icon: '🧬' },
     { kind: 'target-discovery', label: 'Targets', icon: '🎯' },
     { kind: 'pathfinding', label: 'Pathfind', icon: '🔍' },
-    { kind: 'feature-engineering', label: 'Features', icon: '⚗️' },
+    { kind: 'feature-engineering', label: 'Engineering', icon: '⚗️' },
     { kind: 'output', label: 'Output', icon: '📊' },
   ]
   return (

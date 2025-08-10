@@ -22,6 +22,8 @@ export default function NodeCard(props: NodeProps<NodeData>) {
   const icon =
     data.kind === 'data-source'
       ? '📁'
+      : data.kind === 'feature-selection'
+      ? '🧬'
       : data.kind === 'target-discovery'
       ? '🎯'
       : data.kind === 'pathfinding'

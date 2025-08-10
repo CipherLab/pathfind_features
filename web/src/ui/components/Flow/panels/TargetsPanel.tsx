@@ -1,5 +1,4 @@
-import React, { useState } from 'react'
-import GlobalPickerModal from '../../Wizard/GlobalPickerModal'
+import React from 'react'
 
 type Props = {
   cfg: any
@@ -7,21 +6,12 @@ type Props = {
 }
 
 export default function TargetsPanel({ cfg, updateData }: Props) {
-  const [open, setOpen] = useState<null | 'features'>(null)
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <div className="text-sm font-medium mb-2">Features JSON</div>
-        <button
-          className="btn w-full justify-start"
-          onClick={() => setOpen('features')}
-          title={cfg.featuresJson}
-        >
-          {cfg.featuresJson}
-        </button>
-        <div className="text-xs text-slate-400 mt-1">
-          Feature definition file with feature_sets.medium.
-        </div>
+      <div className="text-xs text-slate-400">
+        {cfg.inheritFeaturesFrom
+          ? `Inherits features.json from ${cfg.inheritFeaturesFrom === true ? 'an upstream features node' : cfg.inheritFeaturesFrom}.`
+          : 'Does not inherit features.json from any upstream node.'}
       </div>
       <div>
         <div className="text-sm font-medium mb-2">Performance Mode</div>
@@ -89,16 +79,6 @@ export default function TargetsPanel({ cfg, updateData }: Props) {
         />{' '}
         Pretty output
       </label>
-      {open && (
-        <GlobalPickerModal
-          mode="features"
-          onSelect={v => {
-            updateData({ featuresJson: v })
-            setOpen(null)
-          }}
-          onClose={() => setOpen(null)}
-        />
-      )}
     </div>
   )
 }

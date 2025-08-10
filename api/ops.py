@@ -2,7 +2,9 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
+import os
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = str((ROOT/".venv/bin/python") if (ROOT/".venv/bin/python").exists() else sys.executable)
@@ -40,4 +42,49 @@ def compare_models(control_csv: str, experimental_csv: str, validation_data: str
             "--output-analysis", output_analysis,
             "--target-col", target_col,
             "--experimental-target-col", experimental_target_col]
+    return subprocess.call(args, cwd=str(ROOT))
+
+def list_transforms() -> List[Dict[str, str]]:
+    transforms_dir = ROOT / "transforms"
+    if not transforms_dir.is_dir():
+        return []
+    
+    transforms = []
+    for filename in os.listdir(transforms_dir):
+        if filename.endswith(".py"):
+            with open(transforms_dir / filename, "r") as f:
+                content = f.read()
+            transforms.append({
+                "name": filename.replace(".py", "").replace("_", " ").title(),
+                "script": content,
+            })
+    return transforms
+
+def execute_transform(input_data: str, transform_script: str, output_data: str) -> dict:
+    # The transform_script is the actual python code, so we need to save it to a temporary file
+    # and pass the file path to the execute_transform.py script.
+    
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(transform_script)
+        script_path = f.name
+
+    args = [PY, str(ROOT/"execute_transform.py"),
+            "--input-data", input_data,
+            "--transform-script", script_path,
+            "--output-data", output_data]
+    
+    try:
+        result = subprocess.run(args, cwd=str(ROOT), capture_output=True, text=True)
+        return {
+            "code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+    finally:
+        os.remove(script_path)
+
+def move_file(source: str, destination: str) -> int:
+    args = [PY, str(ROOT/"move_file.py"),
+            "--source", source,
+            "--destination", destination]
     return subprocess.call(args, cwd=str(ROOT))

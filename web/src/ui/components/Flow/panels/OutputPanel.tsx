@@ -1,30 +1,30 @@
 import React from 'react'
 
+interface OutputConfig {
+  outputPath?: string;
+}
+
 type Props = {
-  cfg: any
+  cfg: OutputConfig
   updateData: (patch: any) => void
 }
 
 export default function OutputPanel({ cfg, updateData }: Props) {
   return (
     <div className="flex flex-col gap-4">
-      <label className="row-center">
-        <input
-          type="checkbox"
-          checked={cfg.pretty}
-          onChange={e => updateData({ pretty: e.target.checked })}
-        />{' '}
-        Pretty output
-      </label>
       <label className="flex flex-col gap-1">
-        <span className="text-sm">Seed</span>
+        <span className="text-sm text-slate-300">Output File Path</span>
         <input
-          className="input"
-          type="number"
-          value={cfg.seed}
-          onChange={e => updateData({ seed: parseInt(e.target.value || '0', 10) })}
+          className="input text-sm"
+          type="text"
+          value={cfg.outputPath || ''}
+          onChange={e => updateData({ outputPath: e.target.value })}
+          placeholder="e.g., pipeline_runs/my_output.parquet"
         />
       </label>
+      <div className="text-xs text-slate-500">
+        This path is auto-generated from the upstream node. You can override it here.
+      </div>
     </div>
   )
 }

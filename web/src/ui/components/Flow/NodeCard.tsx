@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Handle, Position, useReactFlow } from '@xyflow/react'
+import type { Connection, Edge as FlowEdge, Node as FlowNode, NodeProps } from '@xyflow/react'
 import { NodeData, NodeStatus, PayloadType } from './types'
 import { HandleTypes, NodeConstraints } from './node-spec'
 import { isValidConnection } from './validation'
@@ -8,6 +9,7 @@ function StatusDot({ s }: { s: NodeStatus }) {
   const cls: Record<NodeStatus, string> = {
     idle: 'bg-slate-400',
     configured: 'bg-green-400',
+  pending: 'bg-amber-400',
     running: 'bg-cyan-400',
     complete: 'bg-violet-400',
     failed: 'bg-red-400',
@@ -16,8 +18,9 @@ function StatusDot({ s }: { s: NodeStatus }) {
   return <span className={`inline-block h-2.5 w-2.5 rounded-full ${cls[s]}`} />
 }
 
-export default function NodeCard(props: NodeProps<NodeData>) {
-  const { id, data } = props
+export default function NodeCard(props: NodeProps<FlowNode<NodeData>>) {
+  const { id } = props
+  const data = props.data as unknown as NodeData
   const { getNodes, getEdges } = useReactFlow()
   const icon =
     data.kind === 'data-source'
@@ -88,7 +91,12 @@ export default function NodeCard(props: NodeProps<NodeData>) {
               type="target"
               position={Position.Left}
               style={{ ...styleFor(inp.type, incoming(inp.id).length === 0), top: 16 + idx * 16 }}
-        isValidConnection={(conn: Connection) => isValidConnection(conn, getNodes() as Node[], getEdges() as Edge[])}
+        isValidConnection={(conn: any) =>
+          isValidConnection(
+            conn as Connection,
+            getNodes() as unknown as FlowNode<NodeData>[],
+            getEdges() as unknown as FlowEdge[]
+          )}
             />
           ))}
         </div>
@@ -118,7 +126,12 @@ export default function NodeCard(props: NodeProps<NodeData>) {
           type="source"
           position={Position.Right}
           style={styleFor(cons.output.type)}
-          isValidConnection={conn => isValidConnection(conn, getNodes(), getEdges())}
+          isValidConnection={(conn: any) =>
+            isValidConnection(
+              conn as Connection,
+              getNodes() as unknown as FlowNode<NodeData>[],
+              getEdges() as unknown as FlowEdge[]
+            )}
         />
       )}
     </div>

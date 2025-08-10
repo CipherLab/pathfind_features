@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react'
 import { Node, Edge } from '@xyflow/react'
 import { NodeData, PayloadType } from './types'
-import { HandleTypes, NodeConstraints, NodePanelConfigs } from './node-spec'
+import { HandleTypes, NodeConstraints, NodePanelConfigs, styleFor } from './node-spec'
 import DataPanel from './panels/DataPanel'
 import TargetsPanel from './panels/TargetsPanel'
 import PathfindPanel from './panels/PathfindPanel'
@@ -10,6 +10,7 @@ import TransformPanel from './panels/TransformPanel'
 import TrainPanel from './panels/TrainPanel'
 import ValidatePanel from './panels/ValidatePanel'
 import OutputPanel from './panels/OutputPanel'
+import FeatureSourcePanel from './panels/FeatureSourcePanel'
 
 type Props = {
   selection: Node<NodeData> | null
@@ -256,11 +257,12 @@ export default function Sidebar({ selection, edges, onUpdate, onRun, onDelete }:
     seed: 42,
   }))
   React.useEffect(() => {
-    if (!selection) return
-    if (selection.data?.config) {
-      setCfg((p: any) => ({ ...p, ...selection.data.config }))
+    if (selection) {
+      setCfg(selection.data?.config || {});
+    } else {
+      setCfg({});
     }
-  }, [selection?.id])
+  }, [selection]);
   const updateData = useCallback(
     (patch: any) => {
       setCfg((prev: any) => {

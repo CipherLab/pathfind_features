@@ -63,6 +63,11 @@ class PreflightReq(BaseModel):
 class InspectReq(BaseModel):
     path: str
 
+class TransformExecuteReq(BaseModel):
+    input_data: str
+    transform_script: str
+    output_data: str
+
 
 # (lane planning models removed)
 
@@ -73,6 +78,21 @@ async def health():
 @app.get("/ping")
 async def ping():
     return {"status": "pong"}
+
+@app.get("/transforms")
+async def get_transforms():
+    return ops.list_transforms()
+
+@app.post("/transforms/execute")
+async def execute_transform(body: TransformExecuteReq):
+    code = ops.execute_transform(
+        body.input_data,
+        body.transform_script,
+        body.output_data,
+    )
+    if code != 0:
+        raise HTTPException(500, detail=f"transform script failed with exit {code}")
+    return {"status": "ok", "output": body.output_data}
 
 @app.get("/runs")
 async def list_runs():

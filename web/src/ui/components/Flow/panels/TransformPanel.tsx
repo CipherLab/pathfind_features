@@ -27,9 +27,6 @@ export default function TransformPanel({ cfg, updateData }: Props) {
       .catch(console.error);
   }, []);
 
-  const setScript = (script: string) => {
-    updateData({ script });
-  };
 
   return (
     <div className="flex flex-col gap-4">

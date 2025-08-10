@@ -19,8 +19,7 @@ from .models import RunRequest
 app = FastAPI(title="Pathfind Features API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_origin_regex='http://localhost:.*',
+    allow_origin_regex='http://localhost(:[0-9]+)?',
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

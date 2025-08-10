@@ -18,4 +18,9 @@ export type NodeData = {
 }
 
 // Data payload flowing through an edge
-export type PayloadType = 'PARQUET' | 'JSON_ARTIFACT' | 'ENHANCED_DATA' | 'FINAL_OUTPUT'
+export type PayloadType =
+  | 'PARQUET'
+  | 'JSON_ARTIFACT'
+  | 'RELATIONSHIPS'
+  | 'ENHANCED_DATA'
+  | 'FINAL_OUTPUT'

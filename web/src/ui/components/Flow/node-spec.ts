@@ -1,9 +1,13 @@
 import { NodeKind, PayloadType } from './types'
 
 // Visual and semantic handle types
-export const HandleTypes: Record<PayloadType, { color: string; shape: 'square' | 'circle' | 'diamond' | 'star' }> = {
+export const HandleTypes: Record<
+  PayloadType,
+  { color: string; shape: 'square' | 'circle' | 'diamond' | 'star' | 'triangle' }
+> = {
   PARQUET: { color: '#22d3ee', shape: 'square' },
   JSON_ARTIFACT: { color: '#a855f7', shape: 'circle' },
+  RELATIONSHIPS: { color: '#ef4444', shape: 'triangle' },
   ENHANCED_DATA: { color: '#10b981', shape: 'diamond' },
   FINAL_OUTPUT: { color: '#f59e0b', shape: 'star' },
 }
@@ -41,7 +45,7 @@ export const NodeConstraints: Record<
       { id: 'in-parquet', type: 'PARQUET', label: 'input.parquet' },
       { id: 'in-artifact', type: 'JSON_ARTIFACT', label: 'targets.json' },
     ],
-    output: { id: 'out-relationships', type: 'JSON_ARTIFACT', label: 'relationships.json' },
+  output: { id: 'out-relationships', type: 'RELATIONSHIPS', label: 'relationships.json' },
     canConnectTo: ['feature-engineering'],
   },
   'feature-engineering': {
@@ -49,7 +53,7 @@ export const NodeConstraints: Record<
     maxOutputs: 1,
     inputs: [
       { id: 'in-parquet', type: 'PARQUET', label: 'input.parquet' },
-      { id: 'in-artifact', type: 'JSON_ARTIFACT', label: 'relationships.json' },
+  { id: 'in-artifact', type: 'RELATIONSHIPS', label: 'relationships.json' },
     ],
     output: { id: 'out-enhanced', type: 'ENHANCED_DATA', label: 'enhanced.parquet' },
     canConnectTo: ['output'],

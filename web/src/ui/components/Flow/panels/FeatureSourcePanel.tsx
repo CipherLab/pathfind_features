@@ -17,7 +17,7 @@ export default function FeatureSourcePanel({ cfg, updateData }: Props) {
           onClick={() => setOpen('features')}
           title={cfg.featuresJson}
         >
-          {cfg.featuresJson || '(select features.json)'}
+          {cfg.featuresJson || FEATURES_JSON_PLACEHOLDER}
         </button>
         <div className="text-xs text-slate-400 mt-1">
           Feature definition file with feature_sets.medium.

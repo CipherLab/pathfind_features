@@ -80,6 +80,8 @@ export default function BuilderPage() {
       const title =
         kind === 'data-source'
           ? 'Data Source'
+          : kind === 'feature-selection'
+          ? 'Features'
           : kind === 'target-discovery'
           ? 'Target Discovery'
           : kind === 'pathfinding'
@@ -177,6 +179,20 @@ export default function BuilderPage() {
             }
             return n
           })
+        } else if (src.data.kind === 'feature-selection') {
+          const downstream = edges.filter(e => e.source === src.id).map(e => e.target)
+          updated = ns.map(n => {
+            if (downstream.includes(n.id) && n.data.kind === 'target-discovery') {
+              const cfg = {
+                ...n.data.config,
+                inheritFeaturesFrom: src.id,
+                featuresJson: src.data.config?.featuresJson,
+              }
+              const status = (n.data.status === 'idle' ? 'configured' : n.data.status) as NodeStatus
+              return { ...n, data: { ...n.data, config: cfg, status } }
+            }
+            return n
+          })
         }
         return updated
       })
@@ -201,6 +217,8 @@ export default function BuilderPage() {
                   statusText:
                     data.kind === 'target-discovery'
                       ? 'Running target discovery...'
+                      : data.kind === 'feature-selection'
+                      ? 'Loading features...'
                       : data.kind === 'pathfinding'
                       ? 'Exploring relationships...'
                       : data.kind === 'feature-engineering'
@@ -245,6 +263,8 @@ export default function BuilderPage() {
                     statusText:
                       data.kind === 'target-discovery'
                         ? '✅ Targets discovered'
+                        : data.kind === 'feature-selection'
+                        ? '✅ Features selected'
                         : data.kind === 'pathfinding'
                         ? '✅ Relationships mapped'
                         : data.kind === 'feature-engineering'
@@ -257,7 +277,11 @@ export default function BuilderPage() {
         )
 
         // propagate outputs to downstream nodes when relevant
-        if (data.kind === 'target-discovery' || data.kind === 'pathfinding') {
+        if (
+          data.kind === 'target-discovery' ||
+          data.kind === 'pathfinding' ||
+          data.kind === 'feature-selection'
+        ) {
           propagateArtifacts(node)
         }
       } catch (e: any) {

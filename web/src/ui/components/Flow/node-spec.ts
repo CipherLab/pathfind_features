@@ -39,11 +39,21 @@ export const NodeConstraints: Record<
     description: "Provides the raw training parquet to downstream nodes.",
     canConnectTo: ["target-discovery", "pathfinding", "feature-engineering"],
   },
+  "feature-selection": {
+    maxInputs: 0,
+    maxOutputs: 999,
+    inputs: [],
+    outputs: [{ id: "out-features", type: "JSON_ARTIFACT", label: "features.json" }],
+    output: { id: "out-features", type: "JSON_ARTIFACT", label: "features.json" },
+    description: "Provides a features.json file to downstream nodes.",
+    canConnectTo: ["target-discovery"],
+  },
   "target-discovery": {
-    maxInputs: 1,
+    maxInputs: 2,
     maxOutputs: 999,
     inputs: [
       { id: "in-parquet", type: "PARQUET", label: "input.parquet", required: true },
+      { id: "in-features", type: "JSON_ARTIFACT", label: "features.json", required: true },
     ],
     outputs: [
       { id: "out-targets", type: "JSON_ARTIFACT", label: "targets.json" },
@@ -101,8 +111,14 @@ export const NodePanelConfigs: Record<
   'data-source': {
     outputs: ['Emits the configured parquet file path to be shared downstream.'],
   },
+  'feature-selection': {
+    outputs: ['Emits a features.json file chosen from storage.'],
+  },
   'target-discovery': {
-    inputs: ['Requires the raw parquet to scan for candidate targets.'],
+    inputs: [
+      'Requires the raw parquet to scan for candidate targets.',
+      'Needs a features.json listing candidate features.',
+    ],
     outputs: ['Produces a targets.json artifact listing target definitions.'],
   },
   pathfinding: {

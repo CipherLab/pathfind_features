@@ -11,7 +11,10 @@ export default function NodePalette({ onAdd }: Props) {
     { kind: 'feature-selection', label: 'Features', icon: '🧬' },
     { kind: 'target-discovery', label: 'Targets', icon: '🎯' },
     { kind: 'pathfinding', label: 'Pathfind', icon: '🔍' },
-    { kind: 'feature-engineering', label: 'Engineering', icon: '⚗️' },
+    { kind: 'feature-engineering', label: 'Features', icon: '⚗️' },
+    { kind: 'transform', label: 'Transform', icon: '🔄' },
+    { kind: 'train', label: 'Train', icon: '🏋️' },
+    { kind: 'validate', label: 'Validate', icon: '✅' },
     { kind: 'output', label: 'Output', icon: '📊' },
   ]
   return (

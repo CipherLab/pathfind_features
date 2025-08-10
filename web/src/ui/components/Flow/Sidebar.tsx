@@ -1,21 +1,25 @@
 import React, { useCallback, useState } from 'react'
-import { Node } from '@xyflow/react'
-import { NodeData } from './types'
-import { NodeConstraints, NodePanelConfigs } from './node-spec'
+import { Node, Edge } from '@xyflow/react'
+import { NodeData, PayloadType } from './types'
+import { HandleTypes, NodeConstraints, NodePanelConfigs } from './node-spec'
 import DataPanel from './panels/DataPanel'
 import TargetsPanel from './panels/TargetsPanel'
 import PathfindPanel from './panels/PathfindPanel'
 import FeaturesPanel from './panels/FeaturesPanel'
-import FeatureSourcePanel from './panels/FeatureSourcePanel'
+import TransformPanel from './panels/TransformPanel'
+import TrainPanel from './panels/TrainPanel'
+import ValidatePanel from './panels/ValidatePanel'
 import OutputPanel from './panels/OutputPanel'
 
 type Props = {
   selection: Node<NodeData> | null
+  edges: Edge[]
   onUpdate: (updater: (prev: NodeData) => NodeData) => void
   onRun: () => void
+  onDelete: () => void
 }
 
-function InputOutputSection({ selection }: { selection: Node<NodeData> }) {
+function InputOutputSection({ selection, edges }: { selection: Node<NodeData>; edges: Edge[] }) {
   if (!selection) return null
   const constraints = NodeConstraints[selection.data.kind]
   const panelConfig = NodePanelConfigs[selection.data.kind]
@@ -25,13 +29,17 @@ function InputOutputSection({ selection }: { selection: Node<NodeData> }) {
         <div className="rounded-md border border-slate-600 bg-slate-800/50 p-3">
           <h4 className="text-sm font-semibold text-blue-300 mb-2">📥 Inputs Required</h4>
           <div className="space-y-2">
-            {constraints.inputs.map((input) => (
-              <div key={input.id} className="flex items-center gap-2 text-xs">
-                <div className={`w-2 h-2 rounded-full ${input.required ? 'bg-red-400' : 'bg-yellow-400'}`} />
-                <span className="text-slate-300">{input.label}</span>
-                {!input.required && <span className="text-slate-500">(optional)</span>}
-              </div>
-            ))}
+            {constraints.inputs.map((input) => {
+              const connected = edges.some(e => e.target === selection.id && e.targetHandle === input.id)
+              return (
+                <div key={input.id} className="flex items-center gap-2 text-xs">
+                  <span style={styleFor(input.type, !connected)} />
+                  <span className="text-slate-300">{input.label}</span>
+                  {!connected && input.required && <span className="text-red-400">required</span>}
+                  {!input.required && <span className="text-slate-500">(optional)</span>}
+                </div>
+              )
+            })}
           </div>
           {panelConfig?.inputs && (
             <div className="mt-2 text-xs text-slate-400 border-t border-slate-600 pt-2">
@@ -48,7 +56,7 @@ function InputOutputSection({ selection }: { selection: Node<NodeData> }) {
           <div className="space-y-2">
             {constraints.outputs.map((output) => (
               <div key={output.id} className="flex items-center gap-2 text-xs">
-                <div className="w-2 h-2 rounded-full bg-green-400" />
+                <span style={styleFor(output.type)} />
                 <span className="text-slate-300">{output.label}</span>
               </div>
             ))}
@@ -233,7 +241,7 @@ function ParquetFilterConfigPanel({ cfg, updateData }: { cfg: any, updateData: (
   )
 }
 
-export default function Sidebar({ selection, onUpdate, onRun }: Props) {
+export default function Sidebar({ selection, edges, onUpdate, onRun, onDelete }: Props) {
   const [cfg, setCfg] = useState<any>(() => ({
     inputData: 'v5.0/train.parquet',
     featuresJson: 'v5.0/features.json',
@@ -292,7 +300,7 @@ export default function Sidebar({ selection, onUpdate, onRun }: Props) {
         </div>
       </div>
       <div className="border-b border-slate-700 p-4">
-        <InputOutputSection selection={selection} />
+        <InputOutputSection selection={selection} edges={edges} />
       </div>
       <div className="flex-1 overflow-auto p-4">
         <h3 className="text-sm font-semibold text-slate-200 mb-3">⚙️ Configuration</h3>
@@ -311,26 +319,35 @@ export default function Sidebar({ selection, onUpdate, onRun }: Props) {
         {selection.data.kind === 'feature-engineering' && (
           <FeaturesPanel cfg={cfg} updateData={updateData} />
         )}
+        {selection.data.kind === 'transform' && (
+          <TransformPanel cfg={cfg} updateData={updateData} />
+        )}
+        {selection.data.kind === 'train' && (
+          <TrainPanel cfg={cfg} updateData={updateData} />
+        )}
+        {selection.data.kind === 'validate' && (
+          <ValidatePanel cfg={cfg} updateData={updateData} />
+        )}
         {selection.data.kind === 'output' && (
           <OutputPanel cfg={cfg} updateData={updateData} />
         )}
       </div>
       <div className="border-t border-slate-700 p-4">
         <div className="flex gap-2">
-          <button 
-            className="btn btn-primary flex-1" 
+          <button
+            className="btn btn-primary flex-1"
             onClick={onRun}
             disabled={d.status === 'running'}
           >
             {d.status === 'running' ? 'Running...' : 'Run Node'}
           </button>
-          {d.status === 'complete' && (
-            <button className="btn bg-green-600 hover:bg-green-700">✓ Done</button>
-          )}
+          <button className="btn bg-red-700 hover:bg-red-800" onClick={onDelete}>
+            Delete
+          </button>
         </div>
         {d.status === 'blocked' && (
           <div className="mt-2 text-xs text-amber-400">
-            ⚠️ This node is blocked. Check that all required inputs are connected 
+            ⚠️ This node is blocked. Check that all required inputs are connected
             and upstream nodes are complete.
           </div>
         )}

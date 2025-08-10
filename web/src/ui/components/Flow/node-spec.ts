@@ -37,7 +37,7 @@ export const NodeConstraints: Record<
     outputs: [{ id: "out-parquet", type: "PARQUET", label: "train.parquet" }],
     output: { id: "out-parquet", type: "PARQUET", label: "train.parquet" },
     description: "Provides the raw training parquet to downstream nodes.",
-    canConnectTo: ["target-discovery", "pathfinding", "feature-engineering"],
+    canConnectTo: ["target-discovery", "pathfinding", "feature-engineering", "transform"],
   },
   "feature-selection": {
     maxInputs: 0,
@@ -88,7 +88,47 @@ export const NodeConstraints: Record<
     ],
     output: { id: "out-enhanced", type: "ENHANCED_DATA", label: "enhanced.parquet" },
     description: "Generates engineered features using relationships; outputs enhanced.parquet.",
-    canConnectTo: ["output"],
+    canConnectTo: ["train", "validate", "output"],
+  },
+  transform: {
+    maxInputs: 1,
+    maxOutputs: 1,
+    inputs: [
+      { id: "in-parquet", type: "PARQUET", label: "input.parquet", required: true },
+    ],
+    outputs: [
+      { id: "out-enhanced", type: "ENHANCED_DATA", label: "transformed.parquet" },
+    ],
+    output: { id: "out-enhanced", type: "ENHANCED_DATA", label: "transformed.parquet" },
+    description: "Applies simple data transformations and emits transformed.parquet.",
+    canConnectTo: ["train", "validate", "output"],
+  },
+  train: {
+    maxInputs: 1,
+    maxOutputs: 1,
+    inputs: [
+      { id: "in-enhanced", type: "ENHANCED_DATA", label: "enhanced.parquet", required: true },
+    ],
+    outputs: [
+      { id: "out-model", type: "JSON_ARTIFACT", label: "model.json" },
+    ],
+    output: { id: "out-model", type: "JSON_ARTIFACT", label: "model.json" },
+    description: "Trains a model from enhanced.parquet and outputs model.json.",
+    canConnectTo: ["validate"],
+  },
+  validate: {
+    maxInputs: 2,
+    maxOutputs: 1,
+    inputs: [
+      { id: "in-enhanced", type: "ENHANCED_DATA", label: "enhanced.parquet", required: true },
+      { id: "in-model", type: "JSON_ARTIFACT", label: "model.json", required: true },
+    ],
+    outputs: [
+      { id: "out-report", type: "FINAL_OUTPUT", label: "report.json" },
+    ],
+    output: { id: "out-report", type: "FINAL_OUTPUT", label: "report.json" },
+    description: "Validates a trained model and produces a report.json.",
+    canConnectTo: [],
   },
   output: {
     maxInputs: 1,
@@ -134,6 +174,21 @@ export const NodePanelConfigs: Record<
       'Requires relationships.json describing feature relationships.',
     ],
     outputs: ['Emits enhanced.parquet containing engineered features.'],
+  },
+  transform: {
+    inputs: ['Consumes input.parquet to apply transformations.'],
+    outputs: ['Emits transformed.parquet with applied transforms.'],
+  },
+  train: {
+    inputs: ['Needs enhanced.parquet containing features.'],
+    outputs: ['Produces model.json capturing the trained model.'],
+  },
+  validate: {
+    inputs: [
+      'Requires enhanced.parquet for evaluation.',
+      'Consumes model.json from training.',
+    ],
+    outputs: ['Emits report.json with validation metrics.'],
   },
   output: {
     inputs: ['Consumes enhanced.parquet to export or visualize results.'],

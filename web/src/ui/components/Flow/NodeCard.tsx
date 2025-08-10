@@ -30,6 +30,12 @@ export default function NodeCard(props: NodeProps<NodeData>) {
       ? '🔍'
       : data.kind === 'feature-engineering'
       ? '⚗️'
+      : data.kind === 'transform'
+      ? '🔄'
+      : data.kind === 'train'
+      ? '🏋️'
+      : data.kind === 'validate'
+      ? '✅'
       : '📊'
 
   // helper: style per handle type

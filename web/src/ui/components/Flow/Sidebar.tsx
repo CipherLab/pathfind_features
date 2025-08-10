@@ -2,6 +2,11 @@ import React, { useCallback, useState } from 'react'
 import { Node } from '@xyflow/react'
 import { NodeData } from './types'
 import { NodeConstraints, NodePanelConfigs } from './node-spec'
+import DataPanel from './panels/DataPanel'
+import TargetsPanel from './panels/TargetsPanel'
+import PathfindPanel from './panels/PathfindPanel'
+import FeaturesPanel from './panels/FeaturesPanel'
+import OutputPanel from './panels/OutputPanel'
 
 type Props = {
   selection: Node<NodeData> | null
@@ -228,7 +233,19 @@ function ParquetFilterConfigPanel({ cfg, updateData }: { cfg: any, updateData: (
 }
 
 export default function Sidebar({ selection, onUpdate, onRun }: Props) {
-  const [cfg, setCfg] = useState<any>(() => ({}))
+  const [cfg, setCfg] = useState<any>(() => ({
+    inputData: 'v5.0/train.parquet',
+    featuresJson: 'v5.0/features.json',
+    runName: 'wizard',
+    maxNew: 8,
+    disablePF: false,
+    pretty: true,
+    smoke: true,
+    smokeEras: 60,
+    smokeRows: 150000,
+    smokeFeat: 300,
+    seed: 42,
+  }))
   React.useEffect(() => {
     if (!selection) return
     if (selection.data?.config) {
@@ -278,16 +295,20 @@ export default function Sidebar({ selection, onUpdate, onRun }: Props) {
       </div>
       <div className="flex-1 overflow-auto p-4">
         <h3 className="text-sm font-semibold text-slate-200 mb-3">⚙️ Configuration</h3>
-        {selection.data.kind === 'lightgbm-train' && (
-          <LightGBMConfigPanel cfg={cfg} updateData={updateData} />
+        {selection.data.kind === 'data-source' && (
+          <DataPanel cfg={cfg} updateData={updateData} />
         )}
-        {selection.data.kind === 'parquet-filter' && (
-          <ParquetFilterConfigPanel cfg={cfg} updateData={updateData} />
+        {selection.data.kind === 'target-discovery' && (
+          <TargetsPanel cfg={cfg} updateData={updateData} />
         )}
-        {!['lightgbm-train', 'parquet-filter'].includes(selection.data.kind) && (
-          <div className="text-xs text-slate-500 italic">
-            Configuration panel for {selection.data.kind} coming soon...
-          </div>
+        {selection.data.kind === 'pathfinding' && (
+          <PathfindPanel cfg={cfg} updateData={updateData} />
+        )}
+        {selection.data.kind === 'feature-engineering' && (
+          <FeaturesPanel cfg={cfg} updateData={updateData} />
+        )}
+        {selection.data.kind === 'output' && (
+          <OutputPanel cfg={cfg} updateData={updateData} />
         )}
       </div>
       <div className="border-t border-slate-700 p-4">

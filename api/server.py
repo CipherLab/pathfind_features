@@ -79,6 +79,15 @@ class ExtractFeaturesReq(BaseModel):
     input_data: str
     output_json: str
 
+class TargetDiscoveryReq(BaseModel):
+    input_file: str
+    features_json_file: str
+    output_file: str
+    discovery_file: str
+    skip_walk_forward: bool = False
+    max_eras: Optional[int] = None
+    row_limit: Optional[int] = None
+    target_limit: Optional[int] = None
 
 # (lane planning models removed)
 
@@ -106,6 +115,28 @@ async def execute_transform(body: TransformExecuteReq):
     return {
         "status": "ok",
         "output": body.output_data,
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+    }
+
+@app.post("/steps/target-discovery")
+async def run_step_target_discovery(body: TargetDiscoveryReq):
+    result = ops.run_step_target_discovery(
+        body.input_file,
+        body.features_json_file,
+        body.output_file,
+        body.discovery_file,
+        body.skip_walk_forward,
+        body.max_eras,
+        body.row_limit,
+        body.target_limit,
+    )
+    if result["code"] != 0:
+        raise HTTPException(500, detail=f"target discovery script failed with exit {result['code']}\n{result['stderr']}")
+    return {
+        "status": "ok",
+        "output_file": body.output_file,
+        "discovery_file": body.discovery_file,
         "stdout": result["stdout"],
         "stderr": result["stderr"],
     }
@@ -292,7 +323,7 @@ async def get_logs(run_id: str):
     return {"content": path.read_text(encoding="utf-8", errors="ignore")[-200000:]}
 
 
-# ========== Phase-Aware Wizard APIs ==========
+# ========== Phase-Aware Wizard APIs ========== 
 
 class Phase(str):
     pass
@@ -729,4 +760,3 @@ async def compare(body: CompareReq):
     if code != 0:
         raise HTTPException(500, detail=f"comparison failed with exit {code}")
     return {"status": "ok", "output": body.output_analysis}
-

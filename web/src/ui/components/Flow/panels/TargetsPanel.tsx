@@ -6,6 +6,11 @@ type Props = {
 }
 
 export default function TargetsPanel({ cfg, updateData }: Props) {
+  const ensureTargetsPrefix = (name: string) => {
+    const base = (name || '').trim().replace(/\.json$/i, '')
+    const withPrefix = base.startsWith('targets_') ? base : `targets_${base}`
+    return `${withPrefix}.json`
+  }
   return (
     <div className="flex flex-col gap-4">
       <div className="text-xs text-slate-400">
@@ -70,6 +75,17 @@ export default function TargetsPanel({ cfg, updateData }: Props) {
             </label>
           </div>
         )}
+      </div>
+      <div>
+        <div className="text-sm font-medium mb-2">Targets JSON output</div>
+        <input
+          className="input"
+          type="text"
+          placeholder="targets_myexperiment.json"
+          value={cfg.targetsName || ''}
+          onChange={e => updateData({ targetsName: ensureTargetsPrefix(e.target.value) })}
+        />
+        <div className="text-xs text-slate-400 mt-1">Will save using a 'targets_' prefix.</div>
       </div>
       <label className="row-center">
         <input

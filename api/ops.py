@@ -11,6 +11,48 @@ ROOT = Path(__file__).resolve().parents[1]
 PY = str((ROOT/".venv/bin/python") if (ROOT/".venv/bin/python").exists() else sys.executable)
 
 
+def run_step_target_discovery(
+    input_file: str, 
+    features_json_file: str, 
+    output_file: str, 
+    discovery_file: str, 
+    skip_walk_forward: bool = False,
+    max_eras: int | None = None, 
+    row_limit: int | None = None, 
+    target_limit: int | None = None
+) -> dict:
+    """
+    Runs the Target Bootstrap Discovery stage (step_01_target_discovery.py).
+    """
+    args = [
+        PY, 
+        str(ROOT / "bootstrap_pipeline" / "steps" / "step_01_target_discovery.py"),
+        "--input-file", input_file,
+        "--features-json-file", features_json_file,
+        "--output-file", output_file,
+        "--discovery-file", discovery_file,
+    ]
+    if skip_walk_forward:
+        args.append("--skip-walk-forward")
+    if max_eras is not None:
+        args.extend(["--max-eras", str(max_eras)])
+    if row_limit is not None:
+        args.extend(["--row-limit", str(row_limit)])
+    if target_limit is not None:
+        args.extend(["--target-limit", str(target_limit)])
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+
+    result = subprocess.run(args, cwd=str(ROOT), capture_output=True, text=True, env=env)
+    
+    return {
+        "code": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
 def apply_to_validation(input_data: str, era_weights: str, relationships_file: Optional[str], output_data: str,
                         max_new_features: int = 40, row_limit: Optional[int] = None) -> int:
     args = [PY, str(ROOT/"apply_bootstrap_to_validation.py"),

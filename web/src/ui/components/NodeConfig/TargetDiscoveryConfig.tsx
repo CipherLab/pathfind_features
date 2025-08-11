@@ -8,6 +8,7 @@ interface TargetDiscoveryConfig {
   smokeRows?: number
   walkForward?: boolean
   seed?: number
+  targetsName?: string
 }
 
 type Props = {
@@ -17,6 +18,12 @@ type Props = {
 
 export default function TargetDiscoveryConfig({ cfg, onChange }: Props) {
   const [open, setOpen] = React.useState<null | 'parquet'>(null)
+
+  const ensureTargetsPrefix = (name: string) => {
+    const base = (name || '').trim().replace(/\.json$/i, '')
+    const withPrefix = base.startsWith('targets_') ? base : `targets_${base}`
+    return `${withPrefix}.json`
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -32,6 +39,20 @@ export default function TargetDiscoveryConfig({ cfg, onChange }: Props) {
             {cfg.inputData || '(select data parquet)'}
           </button>
           <span className="text-xs text-slate-400">Parquet file containing the training rows.</span>
+        </label>
+      </div>
+
+      <div className="rounded-md border border-slate-700 bg-slate-900 p-3">
+        <label className="flex flex-col gap-2">
+          <span className="text-sm font-medium">Targets JSON output</span>
+          <input
+            className="input"
+            type="text"
+            placeholder="targets_myexperiment.json"
+            value={cfg.targetsName || ''}
+            onChange={(e) => onChange({ targetsName: ensureTargetsPrefix(e.target.value) })}
+          />
+          <span className="text-xs text-slate-400">Will be saved with a 'targets_' prefix, e.g. targets_&lt;name&gt;.json.</span>
         </label>
       </div>
 

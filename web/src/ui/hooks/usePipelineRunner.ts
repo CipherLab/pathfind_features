@@ -62,10 +62,18 @@ export function usePipelineRunner(
           const downstream = downIds();
           updated = ns.map((n) => {
             if (downstream.includes(n.id) && n.data.kind === "pathfinding") {
+              const desiredName = src.data.config?.targetsName as
+                | string
+                | undefined;
+              const fname =
+                desiredName && desiredName.trim().length > 0
+                  ? desiredName
+                  : `targets_${experimentName}.json`;
+              const targetsPath = `pipeline_runs/${experimentName}/${fname}`;
               const cfg = {
                 ...n.data.config,
                 inheritTargetsFrom: src.id,
-                targetsJson: "target_discovery.json",
+                targetsJson: targetsPath,
               };
               const status = (
                 n.data.status === "idle" ? "configured" : n.data.status
@@ -158,20 +166,38 @@ export function usePipelineRunner(
 
       try {
         if (data.kind === "target-discovery") {
+          const output_file = `pipeline_runs/${experimentName}/01_adaptive_targets_${id}.parquet`;
+          const discovery_file = `pipeline_runs/${experimentName}/01_target_discovery_${id}.json`;
           const payload = {
-            input_data: cfg.inputData || "v5.0/train.parquet",
-            features_json: cfg.featuresJson || "v5.0/features.json",
-            experiment_name: experimentName,
-            max_new_features: cfg.maxNew ?? 8,
-            disable_pathfinding: true,
-            pretty: cfg.pretty ?? true,
-            smoke_mode: cfg.smoke ?? true,
-            smoke_max_eras: cfg.smokeEras,
-            smoke_row_limit: cfg.smokeRows,
-            smoke_feature_limit: cfg.smokeFeat,
-            seed: seed,
+            input_file: cfg.inputData || "v5.0/train.parquet",
+            features_json_file: cfg.featuresJson || "v5.0/features.json",
+            output_file: output_file,
+            discovery_file: discovery_file,
+            skip_walk_forward: !(cfg.walkForward ?? true),
+            max_eras: cfg.smoke ? cfg.smokeEras : undefined,
+            row_limit: cfg.smoke ? cfg.smokeRows : undefined,
+            target_limit: cfg.smoke ? cfg.smokeFeat : undefined, // Note: UI calls this 'smokeFeat'
           };
-          await jpost("/runs", payload);
+          const result = await jpost("/steps/target-discovery", payload);
+          
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === id
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      config: {
+                        ...n.data.config,
+                        outputPath: result.output_file,
+                        discoveryPath: result.discovery_file,
+                        logs: result.stdout,
+                      },
+                    },
+                  }
+                : n
+            )
+          );
         } else if (data.kind === "transform") {
           const inputEdge = edges.find((e) => e.target === id);
           if (!inputEdge) {

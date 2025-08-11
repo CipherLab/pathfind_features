@@ -3,6 +3,26 @@ from pathlib import Path
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import logging
+import sys
+
+def setup_logging(log_file):
+    """Initializes logging to both file and console for a specific run."""
+    # Remove all handlers associated with the root logger object.
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    
+    log_dir = Path(log_file).parent
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
 
 class BaseTransform(ABC):
     def __init__(self, input_path, output_path):
@@ -21,8 +41,16 @@ class BaseTransform(ABC):
         - Guard against input and output being the same file.
         - Stream Parquet output using ParquetWriter instead of re-reading and rewriting.
         """
+        run_dir = Path(self.output_path).parent
+        log_file = run_dir / "logs.log"
+        setup_logging(log_file)
+
         in_path = Path(self.input_path)
         out_path = Path(self.output_path)
+
+        logging.info(f"Starting transform: {self.__class__.__name__}")
+        logging.info(f"Input: {in_path}")
+        logging.info(f"Output: {out_path}")
 
         # Guard: prevent writing to the same file we're reading from
         try:
@@ -47,12 +75,14 @@ class BaseTransform(ABC):
                 mode = 'w' if is_first_chunk else 'a'
                 transformed_chunk.to_csv(str(out_path), index=False, mode=mode, header=is_first_chunk)
                 is_first_chunk = False
+            logging.info("Transform complete.")
             return
 
         # Default: Parquet streaming via ParquetWriter (efficient and stable size growth)
         writer: pq.ParquetWriter | None = None
         try:
-            for batch in parquet_file.iter_batches(batch_size=batch_size):
+            for i, batch in enumerate(parquet_file.iter_batches(batch_size=batch_size)):
+                logging.info(f"Processing batch {i+1}...")
                 df_chunk = batch.to_pandas()
                 transformed_chunk = self.transform(df_chunk)
                 # Convert to Arrow Table once per chunk
@@ -78,3 +108,4 @@ class BaseTransform(ABC):
         finally:
             if writer is not None:
                 writer.close()
+        logging.info("Transform complete.")

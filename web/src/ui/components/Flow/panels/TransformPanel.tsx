@@ -51,7 +51,7 @@ export default function TransformPanel({ cfg, updateData }: Props) {
           <button
             key={transform.name}
             className="btn-sm bg-slate-700 hover:bg-slate-600 text-xs"
-            onClick={() => setScript(transform.script)}
+            onClick={() => updateData({ script: transform.script })}
           >
             {transform.name}
           </button>

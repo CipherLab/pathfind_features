@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
-import { Node, Edge } from '@xyflow/react';
-import { jpost } from '../lib/api';
-import { NodeData, NodeStatus } from '../components/Flow/types';
-import { validatePipeline } from '../components/Flow/validation';
-import { NodeConstraints } from '../components/Flow/node-spec';
+import { useState, useCallback, useEffect } from "react";
+import { Node, Edge } from "@xyflow/react";
+import { jpost } from "../lib/api";
+import { NodeData, NodeStatus } from "../components/Flow/types";
+import { validatePipeline } from "../components/Flow/validation";
+import { NodeConstraints } from "../components/Flow/node-spec";
 
 export function usePipelineRunner(
   nodes: Node<NodeData>[],
@@ -11,6 +11,7 @@ export function usePipelineRunner(
   setNodes: (
     nodes: Node<NodeData>[] | ((nodes: Node<NodeData>[]) => Node<NodeData>[])
   ) => void,
+  setEdges: (edges: Edge[] | ((edges: Edge[]) => Edge[])) => void,
   experimentName: string,
   seed: number
 ) {
@@ -102,6 +103,11 @@ export function usePipelineRunner(
               const cfg = {
                 ...(n.data.config || {}),
                 inputData: src.data.config.outputPath,
+                // if this node expects features.json (target-discovery), pass along derived features when present
+                ...(n.data.kind === "target-discovery" &&
+                src.data.config.derivedFeatures
+                  ? { featuresJson: src.data.config.derivedFeatures }
+                  : {}),
               };
               const status = (
                 n.data.status === "idle" ? "configured" : n.data.status
@@ -155,7 +161,7 @@ export function usePipelineRunner(
           const payload = {
             input_data: cfg.inputData || "v5.0/train.parquet",
             features_json: cfg.featuresJson || "v5.0/features.json",
-            run_name: experimentName,
+            experiment_name: experimentName,
             max_new_features: cfg.maxNew ?? 8,
             disable_pathfinding: true,
             pretty: cfg.pretty ?? true,
@@ -187,6 +193,19 @@ export function usePipelineRunner(
             output_data: `pipeline_runs/${experimentName}/transformed_data_${id}.parquet`,
           };
           const result = await jpost("/transforms/execute", payload);
+          // Try to derive a features.json artifact from the transformed parquet
+          let derivedFeaturesPath: string | undefined = undefined;
+          try {
+            const fpath = `pipeline_runs/${experimentName}/features_${id}.json`;
+            const r = await jpost("/features/derive", {
+              input_data: result.output,
+              output_json: fpath,
+            });
+            derivedFeaturesPath = r.output || fpath;
+          } catch (e) {
+            // ignore
+          }
+          const outPath: string = result.output;
           setNodes((ns) =>
             ns.map((n) =>
               n.id === id
@@ -196,13 +215,35 @@ export function usePipelineRunner(
                       ...n.data,
                       config: {
                         ...n.data.config,
-                        outputPath: result.output,
+                        outputPath: outPath,
                         logs: result.stdout,
+                        derivedFeatures: derivedFeaturesPath,
                       },
                     },
                   }
                 : n
             )
+          );
+          // Update edge labels from this node to reflect real filenames
+          setEdges((es) =>
+            es.map((e) => {
+              if (e.source !== id) return e;
+              const sh: any = (e as any).data?.sourceHandle || e.sourceHandle;
+              const label =
+                sh === "out-features"
+                  ? derivedFeaturesPath
+                    ? derivedFeaturesPath.split("/").pop()!
+                    : "features.json"
+                  : outPath
+                  ? outPath.split("/").pop()!
+                  : "transformed.parquet";
+              const color = (e.style && (e.style as any).stroke) || "#a855f7";
+              return {
+                ...e,
+                label,
+                labelStyle: { fill: color, fontSize: 10 },
+              } as any;
+            })
           );
         } else if (data.kind === "output") {
           const inputEdge = edges.find((e) => e.target === id);

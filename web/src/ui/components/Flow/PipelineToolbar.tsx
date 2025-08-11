@@ -30,6 +30,13 @@ export default function PipelineToolbar({
     fileInputRef.current?.click();
   };
 
+  const handleReset = () => {
+    try {
+      localStorage.removeItem('pipelineState');
+    } catch {}
+    onClear();
+  };
+
   return (
     <div className="flex items-center gap-4 border-b border-slate-700 bg-slate-900/60 p-2">
       <div className="flex items-center gap-2">
@@ -39,6 +46,9 @@ export default function PipelineToolbar({
           className="input input-sm w-40"
           value={experimentName}
           onChange={e => onExperimentNameChange(e.target.value)}
+          aria-label="Experiment name"
+          placeholder="Experiment name"
+          title="Experiment name"
         />
       </div>
       <div className="flex items-center gap-2">
@@ -48,6 +58,9 @@ export default function PipelineToolbar({
           className="input input-sm w-24"
           value={seed}
           onChange={e => onSeedChange(parseInt(e.target.value || '0', 10))}
+          aria-label="Random seed"
+          placeholder="Seed"
+          title="Random seed"
         />
       </div>
       <div className="flex-1" />
@@ -56,6 +69,9 @@ export default function PipelineToolbar({
       </button>
       <button className="btn" onClick={onClear}>
         Clear
+      </button>
+      <button className="btn" onClick={handleReset} title="Clear and remove saved pipeline state">
+        Reset
       </button>
       <button className="btn" onClick={onSave}>
         Save
@@ -67,8 +83,10 @@ export default function PipelineToolbar({
         type="file"
         ref={fileInputRef}
         onChange={onLoad}
-        style={{ display: 'none' }}
+        className="hidden"
         accept=".json"
+        aria-label="Load pipeline JSON"
+        title="Load pipeline JSON"
       />
       {progress.total > 0 && (
         <div className="flex items-center gap-2">

@@ -30,7 +30,7 @@ const HELP: HelpItem[] = [
     suggested: 'v5.0/features.json'
   },
   {
-    key: 'run_name',
+    key: 'experiment_name',
     label: 'Run name',
     what: 'Suffix used for the pipeline run folder name and artifact grouping.',
     tradeoffs: 'Descriptive names help with tracking and comparisons.',

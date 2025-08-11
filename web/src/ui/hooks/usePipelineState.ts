@@ -1,10 +1,18 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { useNodesState, useEdgesState, addEdge, Connection, Edge, Node } from '@xyflow/react';
-import { NodeData, NodeKind } from '../components/Flow/types';
-import { isValidConnection } from '../components/Flow/validation';
-import { HandleTypes, NodeConstraints } from '../components/Flow/node-spec';
+import { useState, useCallback, useRef, useEffect } from "react";
+import {
+  useNodesState,
+  useEdgesState,
+  addEdge,
+  Connection,
+  Edge,
+  Node,
+  Position,
+} from "@xyflow/react";
+import { NodeData, NodeKind } from "../components/Flow/types";
+import { isValidConnection } from "../components/Flow/validation";
+import { HandleTypes, NodeConstraints } from "../components/Flow/node-spec";
 
-const LOCAL_STORAGE_KEY = 'pipelineState';
+const LOCAL_STORAGE_KEY = "pipelineState";
 
 export function usePipelineState() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>([]);
@@ -12,14 +20,39 @@ export function usePipelineState() {
   const [selection, setSelection] = useState<Node<NodeData> | null>(null);
   const idRef = useRef(1);
 
+  // Helper to compute next id base from existing node ids like "n123".
+  const syncIdCounterWithNodes = useCallback((list: Node<NodeData>[]) => {
+    let maxNum = 0;
+    for (const n of list) {
+      const m = /^n(?:[a-z0-9]+_)?(\d+)$/.exec(n.id);
+      if (m) {
+        const v = parseInt(m[1], 10);
+        if (!Number.isNaN(v)) maxNum = Math.max(maxNum, v);
+      }
+    }
+    // Always move forward, never backward
+    idRef.current = Math.max(idRef.current, maxNum + 1);
+  }, []);
+
+  // Robust id generator: time-based prefix + monotonic counter avoids collisions after reloads
+  const nextNodeId = useCallback(() => {
+    const ts = Date.now().toString(36);
+    const id = `n${ts}_${idRef.current++}`;
+    return id;
+  }, []);
+
   useEffect(() => {
     const storedState = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (storedState) {
-      const { nodes: storedNodes, edges: storedEdges } = JSON.parse(storedState);
+      const { nodes: storedNodes, edges: storedEdges } =
+        JSON.parse(storedState);
       setNodes(storedNodes || []);
       setEdges(storedEdges || []);
+      if (storedNodes && Array.isArray(storedNodes)) {
+        syncIdCounterWithNodes(storedNodes as Node<NodeData>[]);
+      }
     }
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, syncIdCounterWithNodes]);
 
   useEffect(() => {
     if (nodes.length > 0 || edges.length > 0) {
@@ -28,6 +61,13 @@ export function usePipelineState() {
     }
   }, [nodes, edges]);
 
+  // Whenever nodes change externally (e.g., load/import), keep id counter ahead
+  useEffect(() => {
+    if (nodes && nodes.length) {
+      syncIdCounterWithNodes(nodes);
+    }
+  }, [nodes, syncIdCounterWithNodes]);
+
   const onConnect = useCallback(
     (conn: Connection) => {
       const source = nodes.find((n: Node<NodeData>) => n.id === conn.source);
@@ -35,22 +75,36 @@ export function usePipelineState() {
       if (!source || !target) return;
       if (!isValidConnection(conn, nodes, edges)) return;
 
-      const vis = NodeConstraints[source.data.kind].output;
-      const color = vis ? HandleTypes[vis.type].color : '#64748b';
-      const label = vis?.label || '';
+      // Determine which source handle is being used and pick its label/type
+      const spec = NodeConstraints[source.data.kind];
+      const outDefs =
+        spec.outputs && spec.outputs.length
+          ? spec.outputs
+          : spec.output
+          ? [spec.output]
+          : [];
+      const chosen =
+        outDefs.find((o) => o.id === conn.sourceHandle) || outDefs[0];
+      const color = chosen ? HandleTypes[chosen.type].color : "#64748b";
+      const label = chosen?.label || "";
 
-      setEdges(eds =>
-        addEdge(
-          {
-            ...conn,
-            type: 'smoothstep',
-            data: { payloadType: vis?.type },
-            label,
-            labelStyle: { fill: color, fontSize: 10 },
-            style: { stroke: color, strokeWidth: 2 },
-          } as any,
-          eds as any
-        ) as any
+      setEdges(
+        (eds) =>
+          addEdge(
+            {
+              ...conn,
+              type: "smoothstep",
+              data: {
+                payloadType: chosen?.type,
+                sourceHandle: conn.sourceHandle,
+                targetHandle: conn.targetHandle,
+              },
+              label,
+              labelStyle: { fill: color, fontSize: 10 },
+              style: { stroke: color, strokeWidth: 2 },
+            } as any,
+            eds as any
+          ) as any
       );
     },
     [nodes, edges, setEdges]
@@ -58,50 +112,55 @@ export function usePipelineState() {
 
   const addNode = useCallback(
     (kind: NodeKind, position?: { x: number; y: number }) => {
-      const id = `n${idRef.current++}`;
+      const id = nextNodeId();
       const title =
-        kind === 'data-source'
-          ? 'Data Source'
-          : kind === 'feature-selection'
-          ? 'Features'
-          : kind === 'target-discovery'
-          ? 'Target Discovery'
-          : kind === 'pathfinding'
-          ? 'Pathfinding'
-          : kind === 'feature-engineering'
-          ? 'Feature Engineering'
-          : kind === 'transform'
-          ? 'Transform'
-          : kind === 'train'
-          ? 'Train'
-          : kind === 'validate'
-          ? 'Validate'
-          : 'Output';
+        kind === "data-source"
+          ? "Data Source"
+          : kind === "feature-selection"
+          ? "Features"
+          : kind === "target-discovery"
+          ? "Target Discovery"
+          : kind === "pathfinding"
+          ? "Pathfinding"
+          : kind === "feature-engineering"
+          ? "Feature Engineering"
+          : kind === "transform"
+          ? "Transform"
+          : kind === "train"
+          ? "Train"
+          : kind === "validate"
+          ? "Validate"
+          : "Output";
 
       const n: Node<NodeData> = {
         id,
-        type: 'appNode',
-        position: position ?? { x: 140 + nodes.length * 50, y: 100 + nodes.length * 20 },
-        data: { kind, title, status: 'idle', statusText: '', config: {} },
+        type: "appNode",
+        position: position ?? {
+          x: 140 + nodes.length * 50,
+          y: 100 + nodes.length * 20,
+        },
+        data: { kind, title, status: "idle", statusText: "", config: {} },
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
       };
       setNodes((ns: Node<NodeData>[]) => [...ns, n]);
       setSelection(n);
     },
-    [nodes.length, setNodes]
+    [nodes.length, setNodes, nextNodeId]
   );
 
   const deleteSelection = useCallback(() => {
     if (!selection) return;
-    setNodes(ns => ns.filter(n => n.id !== selection.id));
-    setEdges(es => es.filter(e => e.source !== selection.id && e.target !== selection.id));
+    setNodes((ns) => ns.filter((n) => n.id !== selection.id));
+    setEdges((es) =>
+      es.filter((e) => e.source !== selection.id && e.target !== selection.id)
+    );
     setSelection(null);
   }, [selection, setNodes, setEdges]);
 
   const onEdgeDoubleClick = useCallback(
     (_: React.MouseEvent, edge: Edge) => {
-      setEdges(es => es.filter(e => e.id !== edge.id));
+      setEdges((es) => es.filter((e) => e.id !== edge.id));
     },
     [setEdges]
   );

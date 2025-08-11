@@ -39,8 +39,8 @@ export const NodeConstraints: Record<
     maxInputs: 0,
     maxOutputs: 999,
     inputs: [],
-    outputs: [{ id: "out-parquet", type: "PARQUET", label: "train.parquet" }],
-    output: { id: "out-parquet", type: "PARQUET", label: "train.parquet" },
+    outputs: [{ id: "out-parquet", type: "PARQUET", label: "" }],
+    output: { id: "out-parquet", type: "PARQUET", label: "" },
     description: "Provides the raw training parquet to downstream nodes.",
     canConnectTo: [
       "target-discovery",
@@ -53,9 +53,7 @@ export const NodeConstraints: Record<
     maxInputs: 0,
     maxOutputs: 999,
     inputs: [],
-    outputs: [
-      { id: "out-features", type: "JSON_ARTIFACT", label: "features.json" },
-    ],
+    outputs: [{ id: "out-features", type: "JSON_ARTIFACT", label: "" }],
     output: {
       id: "out-features",
       type: "JSON_ARTIFACT",
@@ -71,7 +69,7 @@ export const NodeConstraints: Record<
       {
         id: "in-parquet",
         type: "PARQUET",
-        label: "input.parquet",
+        label: "",
         required: true,
       },
       {
@@ -81,10 +79,8 @@ export const NodeConstraints: Record<
         required: true,
       },
     ],
-    outputs: [
-      { id: "out-targets", type: "JSON_ARTIFACT", label: "targets.json" },
-    ],
-    output: { id: "out-targets", type: "JSON_ARTIFACT", label: "targets.json" },
+    outputs: [{ id: "out-targets", type: "JSON_ARTIFACT", label: "" }],
+    output: { id: "out-targets", type: "JSON_ARTIFACT", label: "" },
     description:
       "Discovers candidate targets from the parquet and emits targets.json.",
     canConnectTo: ["pathfinding"],
@@ -96,13 +92,13 @@ export const NodeConstraints: Record<
       {
         id: "in-parquet",
         type: "PARQUET",
-        label: "input.parquet",
+        label: "",
         required: true,
       },
       {
         id: "in-artifact",
         type: "JSON_ARTIFACT",
-        label: "targets.json",
+        label: "",
         required: true,
       },
     ],
@@ -129,7 +125,7 @@ export const NodeConstraints: Record<
       {
         id: "in-parquet",
         type: "PARQUET",
-        label: "input.parquet",
+        label: "",
         required: true,
       },
       {
@@ -153,30 +149,33 @@ export const NodeConstraints: Record<
   },
   transform: {
     maxInputs: 1,
-    maxOutputs: 1,
+    maxOutputs: 2,
     inputs: [
       {
         id: "in-parquet",
         type: "PARQUET",
-        label: "input.parquet",
+        label: "",
         required: true,
       },
     ],
     outputs: [
-      {
-        id: "out-parquet",
-        type: "PARQUET",
-        label: "transformed.parquet",
-      },
+      { id: "out-parquet", type: "PARQUET", label: "" },
+      { id: "out-features", type: "JSON_ARTIFACT", label: "" },
     ],
     output: {
       id: "out-parquet",
       type: "PARQUET",
-      label: "transformed.parquet",
+      label: "",
     },
     description:
-      "Applies simple data transformations and emits transformed.parquet.",
-    canConnectTo: ["train", "validate", "output", "transform"],
+      "Applies transformations and emits transformed.parquet; can also derive a features.json artifact.",
+    canConnectTo: [
+      "train",
+      "validate",
+      "output",
+      "transform",
+      "target-discovery",
+    ],
   },
   train: {
     maxInputs: 1,
@@ -185,12 +184,12 @@ export const NodeConstraints: Record<
       {
         id: "in-parquet",
         type: "PARQUET",
-        label: "input.parquet",
+        label: "",
         required: true,
       },
     ],
-    outputs: [{ id: "out-model", type: "JSON_ARTIFACT", label: "model.json" }],
-    output: { id: "out-model", type: "JSON_ARTIFACT", label: "model.json" },
+    outputs: [{ id: "out-model", type: "JSON_ARTIFACT", label: "" }],
+    output: { id: "out-model", type: "JSON_ARTIFACT", label: "" },
     description: "Trains a model from a parquet file and outputs model.json.",
     canConnectTo: ["validate"],
   },
@@ -201,18 +200,18 @@ export const NodeConstraints: Record<
       {
         id: "in-parquet",
         type: "PARQUET",
-        label: "input.parquet",
+        label: "",
         required: true,
       },
       {
         id: "in-model",
         type: "JSON_ARTIFACT",
-        label: "model.json",
+        label: "",
         required: true,
       },
     ],
-    outputs: [{ id: "out-report", type: "FINAL_OUTPUT", label: "report.json" }],
-    output: { id: "out-report", type: "FINAL_OUTPUT", label: "report.json" },
+    outputs: [{ id: "out-report", type: "FINAL_OUTPUT", label: "" }],
+    output: { id: "out-report", type: "FINAL_OUTPUT", label: "" },
     description: "Validates a trained model and produces a report.json.",
     canConnectTo: [],
   },
@@ -223,7 +222,7 @@ export const NodeConstraints: Record<
       {
         id: "in-parquet",
         type: "PARQUET",
-        label: "input.parquet",
+        label: "",
         required: true,
       },
     ],
@@ -282,7 +281,10 @@ export const NodePanelConfigs: Record<
   },
   transform: {
     inputs: ["Consumes input.parquet to apply transformations."],
-    outputs: ["Emits transformed.parquet with applied transforms."],
+    outputs: [
+      "Emits transformed.parquet with applied transforms.",
+      "Optionally derives a features.json listing resulting features.",
+    ],
   },
   train: {
     inputs: ["Needs a parquet file containing features."],
@@ -300,35 +302,39 @@ export const NodePanelConfigs: Record<
   },
 };
 
-export const styleFor = (payloadType: PayloadType, disconnected = false): React.CSSProperties => {
+export const styleFor = (
+  payloadType: PayloadType,
+  disconnected = false
+): React.CSSProperties => {
   const spec = HandleTypes[payloadType];
   if (!spec) {
     return {};
   }
   const style: React.CSSProperties = {
-    width: '0.75rem',
-    height: '0.75rem',
+    width: "0.75rem",
+    height: "0.75rem",
     backgroundColor: spec.color,
-    border: `1px solid ${disconnected ? '#f43f5e' : '#fff'}`,
-    display: 'inline-block',
+    border: `1px solid ${disconnected ? "#f43f5e" : "#fff"}`,
+    display: "inline-block",
   };
   switch (spec.shape) {
-    case 'circle':
-      style.borderRadius = '99px';
+    case "circle":
+      style.borderRadius = "99px";
       break;
-    case 'diamond':
-      style.transform = 'rotate(45deg)';
+    case "diamond":
+      style.transform = "rotate(45deg)";
       break;
-    case 'triangle':
-      style.width = '0';
-      style.height = '0';
-      style.borderLeft = '6px solid transparent';
-      style.borderRight = '6px solid transparent';
+    case "triangle":
+      style.width = "0";
+      style.height = "0";
+      style.borderLeft = "6px solid transparent";
+      style.borderRight = "6px solid transparent";
       style.borderBottom = `12px solid ${spec.color}`;
-      style.backgroundColor = 'transparent';
+      style.backgroundColor = "transparent";
       break;
-    case 'star':
-      style.clipPath = 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)';
+    case "star":
+      style.clipPath =
+        "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)";
       break;
   }
   return style;

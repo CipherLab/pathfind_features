@@ -112,7 +112,7 @@ def main():
     p_run = subparsers.add_parser("run", help="Execute the discovery and feature engineering pipeline.")
     p_run.add_argument("--input-data", required=True, help="Path to the initial train.parquet file.")
     p_run.add_argument("--features-json", required=True, help="Path to the features.json file.")
-    p_run.add_argument("--run-name", default=None, help="Optional name to append to the run directory.")
+    p_run.add_argument("--experiment-name", default=None, help="Name of the experiment. If provided, creates a directory with this name under pipeline_runs/. Otherwise, a timestamped directory is created.")
     p_run.add_argument("--force", action="store_true", help="Force re-execution of all steps, ignoring cache.")
     p_run.add_argument("--skip-walk-forward", action="store_true", help="Use equal weights for targets (for quick tests).")
     p_run.add_argument("--max-new-features", type=int, default=20, help="Number of new relationship features to create.")
@@ -155,9 +155,11 @@ def main():
 
     # --- Pipeline Execution Logic (for 'run' command) ---
     # 1. Create Run Directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_name = f"_{args.run_name}" if args.run_name else ""
-    run_dir = os.path.join("pipeline_runs", f"run_{timestamp}{run_name}")
+    if args.experiment_name:
+        run_dir = os.path.join("pipeline_runs", args.experiment_name)
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = os.path.join("pipeline_runs", f"run_{timestamp}")
     os.makedirs(run_dir, exist_ok=True)
 
     # 2. Setup Logging

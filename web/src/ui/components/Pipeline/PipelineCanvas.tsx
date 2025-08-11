@@ -9,8 +9,8 @@ import {
   Node,
   Edge,
   Connection,
-  NodeChange,
-  EdgeChange,
+  OnNodesChange,
+  OnEdgesChange,
 } from '@xyflow/react';
 import type { NodeTypes, ReactFlowInstance } from '@xyflow/react';
 import { NodeData } from '../Flow/types';
@@ -21,8 +21,8 @@ const nodeTypes: NodeTypes = { appNode: NodeCard as any };
 interface PipelineCanvasProps {
   nodes: Node<NodeData>[];
   edges: Edge[];
-  onNodesChange: (changes: NodeChange[]) => void;
-  onEdgesChange: (changes: EdgeChange[]) => void;
+  onNodesChange: OnNodesChange<Node<NodeData>>;
+  onEdgesChange: OnEdgesChange;
   onConnect: (connection: Connection) => void;
   onEdgeDoubleClick: (event: React.MouseEvent, edge: Edge) => void;
   onNodeClick: (event: React.MouseEvent, node: Node<NodeData>) => void;

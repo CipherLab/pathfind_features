@@ -11,7 +11,7 @@ import PreflightPanel from '../components/Wizard/PreflightPanel'
 
 export default function WizardPage(){
   // Guard: keep run name within a reasonable length for folders and UI
-  const MAX_RUN_NAME_LENGTH = 64
+  const MAX_EXPERIMENT_NAME_LENGTH = 64
   const [inputData, setInputData] = useState('v5.0/train.parquet')
   const [featuresJson, setFeaturesJson] = useState('v5.0/features.json')
   const [runName, setRunName] = useState('wizard')
@@ -54,7 +54,7 @@ export default function WizardPage(){
         const anypq = [...names].find(n=> n.endsWith('.parquet'))
         if (!ignore) setInputData(train? `pipeline_runs/${reuse}/${train}` : (anypq? `pipeline_runs/${reuse}/${anypq}`: inputData))
         // Suggest a new run name based on reuse
-        if (!ignore) setRunName(`${reuse}_re${Math.floor(Math.random()*1000)}`.slice(0,MAX_RUN_NAME_LENGTH))
+        if (!ignore) setExperimentName(`${reuse}_re${Math.floor(Math.random()*1000)}`.slice(0,MAX_EXPERIMENT_NAME_LENGTH))
         if (!ignore) { setStage1FromRun(reuse); setStage2FromRun(reuse) }
       }catch{}
     })()
@@ -65,7 +65,7 @@ export default function WizardPage(){
   const basePayload = useMemo(()=>({
     input_data: inputData,
   features_json: featuresJson,
-    run_name: runName,
+    experiment_name: experimentName,
     stage1_from: stage1FromRun? `pipeline_runs/${stage1FromRun}`: undefined,
     stage2_from: stage2FromRun? `pipeline_runs/${stage2FromRun}`: undefined,
     max_new_features: maxNew,
@@ -103,7 +103,7 @@ export default function WizardPage(){
       `./.venv/bin/python run_pipeline.py run`,
       `--input-data ${p.input_data}`,
       `--features-json ${p.features_json}`,
-      `--run-name ${p.run_name}`,
+      `--experiment-name ${p.experiment_name}`,
     ]
     if (p.stage1_from && mode !== 'phase1') parts.push(`--stage1-from ${p.stage1_from}`)
     if (p.stage2_from && mode === 'phase3') parts.push(`--stage2-from ${p.stage2_from}`)
@@ -216,7 +216,7 @@ export default function WizardPage(){
           <ParameterHelp setters={{
             input_data: setInputData,
             features_json: setFeaturesJson,
-            run_name: setRunName,
+            experiment_name: setExperimentName,
             max_new_features: (mode==='phase2' ? undefined : (setMaxNew as any)) as any,
             disable_pathfinding: (mode==='phase1' ? undefined : (setDisablePF as any)) as any,
             pretty: setPretty as any,

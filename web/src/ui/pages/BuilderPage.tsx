@@ -34,7 +34,7 @@ export default function BuilderPage() {
     progress,
     runNode,
     onRunPipeline,
-  } = usePipelineRunner(nodes, edges, setNodes, experimentName, seed);
+  } = usePipelineRunner(nodes, edges, setNodes, setEdges, experimentName, seed);
 
   const [rf, setRf] = useState<ReactFlowInstance<Node<NodeData>, Edge> | null>(null);
 

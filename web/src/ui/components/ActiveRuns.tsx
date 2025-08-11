@@ -6,7 +6,7 @@ type Active = {
   id: string
   status: 'PENDING'|'RUNNING'|'SUCCESS'|'ERROR'|'CANCELLED'
   created_at: number
-  params?: { run_name?: string }
+  params?: { experiment_name?: string }
   run_dir?: string
 }
 
@@ -54,7 +54,7 @@ export default function ActiveRuns({ onHasRunning }: { onHasRunning?: (v:boolean
                     {it.status}
                   </span>
                 </td>
-                <td>{it.params?.run_name || ''}</td>
+                <td>{it.params?.experiment_name || ''}</td>
                 <td>{it.created_at ? new Date(it.created_at*1000).toLocaleString(): ''}</td>
                 <td title={it.run_dir || ''} className="ellipsis">{it.run_dir || ''}</td>
               </tr>

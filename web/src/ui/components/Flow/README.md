@@ -56,7 +56,7 @@ Phase 3 ideas
 
 Templates (Quick Discovery, Full Exploration, Debug Mode) as saved node/edge JSON.
 Import/export pipelines to/from JSON.
-Real-time status via ActiveRuns polling mapped to selected node by run_name, with in-node progress summaries.
+Real-time status via ActiveRuns polling mapped to selected node by experiment_name, with in-node progress summaries.
 Quality gates
 
 Build: PASS (vite build)

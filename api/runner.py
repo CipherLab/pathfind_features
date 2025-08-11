@@ -56,8 +56,11 @@ class RunManager:
         run_id = str(uuid.uuid4())
         timestamp = time.time()
         # Create run dir now so we can stream logs there
-        run_suffix = req.run_name or "api"
-        run_dir = RUNS_DIR / f"run_{time.strftime('%Y%m%d_%H%M%S')}_{run_suffix}_{run_id[:8]}"
+        if req.experiment_name:
+            run_dir = RUNS_DIR / req.experiment_name
+        else:
+            run_suffix = "api" # Default suffix if no experiment name
+            run_dir = RUNS_DIR / f"run_{time.strftime('%Y%m%d_%H%M%S')}_{run_suffix}_{run_id[:8]}"
         run_dir.mkdir(parents=True, exist_ok=True)
         logs_path = run_dir / "logs.log"
         record = RunRecord(
@@ -83,7 +86,7 @@ class RunManager:
             "run",
             "--input-data", record.params.input_data,
             "--features-json", record.params.features_json,
-            "--run-name", record.params.run_name or f"api_{run_id[:6]}",
+            "--experiment-name", record.params.experiment_name or f"api_{run_id[:6]}",
         ]
         if getattr(record.params, 'stage1_from', None):
             args += ["--stage1-from", str(record.params.stage1_from)]

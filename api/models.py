@@ -12,7 +12,7 @@ Phase = Literal["full", "target", "pathfinding", "features"]
 class RunRequest:
     input_data: str
     features_json: str
-    run_name: Optional[str] = None
+    experiment_name: Optional[str] = None
     stage1_from: Optional[str] = None
     stage2_from: Optional[str] = None
     # Optional phase hint: controls UI semantics; runner still invokes unified pipeline

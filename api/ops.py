@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional, List, Dict
 import os
 import tempfile
+import json
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = str((ROOT/".venv/bin/python") if (ROOT/".venv/bin/python").exists() else sys.executable)
@@ -64,6 +65,10 @@ def execute_transform(input_data: str, transform_script: str, output_data: str) 
     # The transform_script is the actual python code, so we need to save it to a temporary file
     # and pass the file path to the execute_transform.py script.
     
+    print("--- Transform Script ---")
+    print(transform_script)
+    print("------------------------")
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(transform_script)
         script_path = f.name
@@ -88,3 +93,25 @@ def move_file(source: str, destination: str) -> int:
             "--source", source,
             "--destination", destination]
     return subprocess.call(args, cwd=str(ROOT))
+
+
+def derive_features_json(input_parquet: str, output_json: str) -> int:
+    """Create a minimal features.json from a parquet by listing feature_* columns as feature_sets.medium.
+
+    Includes any feature-like columns (prefix 'feature'). Does not attempt to infer metadata beyond names.
+    """
+    try:
+        import pyarrow.parquet as pq
+    except Exception:
+        return 2
+    try:
+        pf = pq.ParquetFile(str(ROOT / input_parquet) if not str(input_parquet).startswith('/') else input_parquet)
+        names = list(pf.schema.names)
+        features = [c for c in names if str(c).startswith('feature')]
+        data = {"feature_sets": {"medium": features}}
+        out_path = (ROOT / output_json) if not str(output_json).startswith('/') else Path(output_json)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return 0
+    except Exception:
+        return 1

@@ -8,6 +8,7 @@ type Props = {
 
 export default function FeatureSourcePanel({ cfg, updateData }: Props) {
   const [open, setOpen] = useState<null | 'features'>(null)
+  const FEATURES_JSON_PLACEHOLDER = 'Select a features.json file';
   return (
     <div className="flex flex-col gap-4">
       <div>

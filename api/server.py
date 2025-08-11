@@ -28,7 +28,10 @@ app.add_middleware(
 class RunReqModel(BaseModel):
     input_data: str
     features_json: str
+    # Back-compat: UI previously sent run_name; the pipeline expects experiment_name
+    # Support both and map run_name -> experiment_name when starting a run
     run_name: Optional[str] = None
+    experiment_name: Optional[str] = None
     stage1_from: Optional[str] = None
     stage2_from: Optional[str] = None
     phase: Optional[str] = None  # "full" | "target" | "pathfinding" | "features"
@@ -72,6 +75,10 @@ class MoveFileReq(BaseModel):
     source: str
     destination: str
 
+class ExtractFeaturesReq(BaseModel):
+    input_data: str
+    output_json: str
+
 
 # (lane planning models removed)
 
@@ -109,6 +116,14 @@ async def move_file(body: MoveFileReq):
     if code != 0:
         raise HTTPException(500, detail=f"move file failed with exit {code}")
     return {"status": "ok"}
+
+
+@app.post("/features/derive")
+async def derive_features(body: ExtractFeaturesReq):
+    code = ops.derive_features_json(body.input_data, body.output_json)
+    if code != 0:
+        raise HTTPException(500, detail=f"failed to derive features.json from {body.input_data}")
+    return {"status": "ok", "output": body.output_json}
 
 
 @app.get("/runs")
@@ -229,7 +244,34 @@ async def get_run_performance(run_name: str):
 
 @app.post("/runs", status_code=202)
 async def start_run(body: RunReqModel):
-    rec = RUNS.start(RunRequest(**body.model_dump()))
+    # Map incoming payload to RunRequest explicitly to avoid unexpected fields (e.g., run_name)
+    payload = body.model_dump()
+    exp = payload.get("experiment_name") or payload.get("run_name")
+    try:
+        req = RunRequest(
+            input_data=payload["input_data"],
+            features_json=payload["features_json"],
+            experiment_name=exp,
+            stage1_from=payload.get("stage1_from"),
+            stage2_from=payload.get("stage2_from"),
+            phase=payload.get("phase"),
+            force=bool(payload.get("force", False)),
+            skip_walk_forward=bool(payload.get("skip_walk_forward", False)),
+            max_new_features=int(payload.get("max_new_features", 20)),
+            yolo_mode=bool(payload.get("yolo_mode", False)),
+            pf_debug=bool(payload.get("pf_debug", False)),
+            pf_debug_every_rows=int(payload.get("pf_debug_every_rows", 10000)),
+            disable_pathfinding=bool(payload.get("disable_pathfinding", False)),
+            pretty=bool(payload.get("pretty", True)),
+            smoke_mode=bool(payload.get("smoke_mode", False)),
+            smoke_max_eras=payload.get("smoke_max_eras"),
+            smoke_row_limit=payload.get("smoke_row_limit"),
+            smoke_feature_limit=payload.get("smoke_feature_limit"),
+            seed=int(payload.get("seed", 42)),
+        )
+    except KeyError as ex:
+        raise HTTPException(status_code=400, detail=f"Missing required field: {ex}")
+    rec = RUNS.start(req)
     return rec.to_dict()
 
 @app.get("/runs/{run_id}")

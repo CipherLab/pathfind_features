@@ -177,6 +177,79 @@ export function usePipelineState() {
     [selection, setNodes]
   );
 
+  const getUpstreamNode = useCallback(
+    (nodeId: string, handleId?: string) => {
+      const edge = edges.find(
+        (e) => e.target === nodeId && e.targetHandle === handleId
+      );
+      if (!edge) return null;
+      return nodes.find((n) => n.id === edge.source) || null;
+    },
+    [edges, nodes]
+  );
+
+  // Utility: get relevant upstream cap for a node (by kind)
+  const getUpstreamCap = useCallback(
+    (
+      node: Node<NodeData>,
+      capType: "features" | "targets" | "relationships"
+    ) => {
+      // For pathfinding, capType 'features' comes from target-discovery's smokeTargets
+      // For feature-engineering, capType 'relationships' comes from pathfinding's maxNew
+      if (!node) return 0;
+      if (node.data.kind === "pathfinding" && capType === "features") {
+        // Find upstream target-discovery node
+        const edge = edges.find(
+          (e) => e.target === node.id && e.targetHandle === "in-parquet"
+        );
+        if (!edge) return 0;
+        const upstream = nodes.find((n) => n.id === edge.source);
+        return upstream?.data?.config?.smokeTargets || 0;
+      }
+      if (
+        node.data.kind === "feature-engineering" &&
+        capType === "relationships"
+      ) {
+        // Find upstream pathfinding node
+        const edge = edges.find(
+          (e) => e.target === node.id && e.targetHandle === "in-artifact"
+        );
+        if (!edge) return 0;
+        const upstream = nodes.find((n) => n.id === edge.source);
+        return upstream?.data?.config?.maxNew || 0;
+      }
+      return 0;
+    },
+    [edges, nodes]
+  );
+
+  // Auto-clamp downstream config if upstream cap decreases
+  useEffect(() => {
+    setNodes((ns) =>
+      ns.map((n) => {
+        if (n.data.kind === "pathfinding") {
+          const cap = getUpstreamCap(n, "features");
+          if (cap > 0 && n.data.config?.smokeFeat > cap) {
+            return {
+              ...n,
+              data: { ...n.data, config: { ...n.data.config, smokeFeat: cap } },
+            };
+          }
+        }
+        if (n.data.kind === "feature-engineering") {
+          const cap = getUpstreamCap(n, "relationships");
+          if (cap > 0 && n.data.config?.maxNew > cap) {
+            return {
+              ...n,
+              data: { ...n.data, config: { ...n.data.config, maxNew: cap } },
+            };
+          }
+        }
+        return n;
+      })
+    );
+  }, [edges, nodes, getUpstreamCap, setNodes]);
+
   return {
     nodes,
     edges,
@@ -191,5 +264,6 @@ export function usePipelineState() {
     setNodes,
     setEdges,
     setSelection,
+    getUpstreamCap,
   };
 }

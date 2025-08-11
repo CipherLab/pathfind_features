@@ -88,6 +88,15 @@ class TargetDiscoveryReq(BaseModel):
     max_eras: Optional[int] = None
     row_limit: Optional[int] = None
     target_limit: Optional[int] = None
+class PathfindingReq(BaseModel):
+    input_file: str
+    target_col: str = "adaptive_target"
+    output_relationships_file: str
+    yolo_mode: bool = False
+    feature_limit: Optional[int] = None
+    row_limit: Optional[int] = None
+    debug: bool = False
+    debug_every_rows: int = 10000
 
 # (lane planning models removed)
 
@@ -137,6 +146,27 @@ async def run_step_target_discovery(body: TargetDiscoveryReq):
         "status": "ok",
         "output_file": body.output_file,
         "discovery_file": body.discovery_file,
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+    }
+
+@app.post("/steps/pathfinding")
+async def run_step_pathfinding(body: PathfindingReq):
+    result = ops.run_step_pathfinding(
+        body.input_file,
+        body.target_col,
+        body.output_relationships_file,
+        body.yolo_mode,
+        body.feature_limit,
+        body.row_limit,
+        body.debug,
+        body.debug_every_rows,
+    )
+    if result["code"] != 0:
+        raise HTTPException(500, detail=f"pathfinding script failed with exit {result['code']}\n{result['stderr']}")
+    return {
+        "status": "ok",
+        "relationships_file": body.output_relationships_file,
         "stdout": result["stdout"],
         "stderr": result["stderr"],
     }

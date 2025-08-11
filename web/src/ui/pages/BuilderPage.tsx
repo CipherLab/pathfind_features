@@ -149,6 +149,7 @@ export default function BuilderPage() {
       </div>
       <div className="w-[420px] shrink-0 rounded-lg border border-slate-700 bg-slate-900/60">
         <Sidebar
+          nodes={nodes}
           selection={selection}
           edges={edges}
           onUpdate={onUpdateSelection}

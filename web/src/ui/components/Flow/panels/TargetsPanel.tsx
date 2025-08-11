@@ -1,8 +1,9 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 
 type Props = {
   cfg: any
   updateData: (patch: any) => void
+  upstreamCap?: number // for future extensibility
 }
 
 export default function TargetsPanel({ cfg, updateData }: Props) {
@@ -11,6 +12,17 @@ export default function TargetsPanel({ cfg, updateData }: Props) {
     const withPrefix = base.startsWith('targets_') ? base : `targets_${base}`
     return `${withPrefix}.json`
   }
+  // Clamp targets cap to a reasonable max (e.g. 1000)
+  const MAX_TARGETS = 1000
+  const [showWarning, setShowWarning] = useState(false)
+  useEffect(() => {
+    if (cfg.smokeTargets > MAX_TARGETS) {
+      updateData({ smokeTargets: MAX_TARGETS, smokeFeat: MAX_TARGETS })
+      setShowWarning(true)
+    } else {
+      setShowWarning(false)
+    }
+  }, [cfg.smokeTargets])
   return (
     <div className="flex flex-col gap-4">
       <div className="text-xs text-slate-400">
@@ -46,6 +58,8 @@ export default function TargetsPanel({ cfg, updateData }: Props) {
                 className="input"
                 type="number"
                 value={cfg.smokeEras}
+                min={1}
+                max={1000}
                 onChange={e =>
                   updateData({ smokeEras: parseInt(e.target.value || '0', 10) })
                 }
@@ -57,21 +71,30 @@ export default function TargetsPanel({ cfg, updateData }: Props) {
                 className="input"
                 type="number"
                 value={cfg.smokeRows}
+                min={1}
+                max={1000000}
                 onChange={e =>
                   updateData({ smokeRows: parseInt(e.target.value || '0', 10) })
                 }
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-xs">Feature cap</span>
+              <span className="text-xs">Targets cap</span>
               <input
                 className="input"
                 type="number"
-                value={cfg.smokeFeat}
-                onChange={e =>
-                  updateData({ smokeFeat: parseInt(e.target.value || '0', 10) })
-                }
+                value={(cfg as any).smokeTargets ?? (cfg as any).smokeFeat ?? 0}
+                min={1}
+                max={MAX_TARGETS}
+                onChange={e => {
+                  const v = parseInt(e.target.value || '0', 10)
+                  updateData({ smokeTargets: v, smokeFeat: v })
+                }}
               />
+              <div className="text-xs text-slate-400">(Max: {MAX_TARGETS})</div>
+              {showWarning && (
+                <div className="text-xs text-red-400">Value exceeds max allowed; clamped to {MAX_TARGETS}.</div>
+              )}
             </label>
           </div>
         )}

@@ -1,4 +1,6 @@
 import * as React from 'react'
+import { Node } from '@xyflow/react'
+import { NodeData } from '../Flow/types'
 
 interface PathfindingNodeConfig {
   yolo?: boolean
@@ -8,11 +10,12 @@ interface PathfindingNodeConfig {
 }
 
 type Props = {
+  nodes: Node<NodeData>[]
   cfg: PathfindingNodeConfig
   onChange: (patch: Partial<PathfindingNodeConfig>) => void
 }
 
-export default function PathfindingConfig({ cfg, onChange }: Props) {
+export default function PathfindingConfig({ nodes, cfg, onChange }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <div className="text-xs text-slate-400">Uses target_discovery.json from upstream.</div>

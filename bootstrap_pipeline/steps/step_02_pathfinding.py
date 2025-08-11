@@ -5,8 +5,28 @@ import logging
 import os
 import numpy as np
 import pyarrow.parquet as pq
+import sys
+from pathlib import Path
 from bootstrap_pipeline.bootstrap.feature_discovery import CreativePathfindingDiscovery
 from bootstrap_pipeline.utils.utils import reduce_mem_usage
+
+def setup_logging(log_file):
+    """Initializes logging to both file and console for a specific run."""
+    # Remove all handlers associated with the root logger object.
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    
+    log_dir = Path(log_file).parent
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
 
 def run(
     input_file: str,
@@ -19,6 +39,10 @@ def run(
     debug_every_rows: int = 10000,
     **kwargs,
 ):
+    run_dir = Path(output_relationships_file).parent
+    log_file = run_dir / "logs.log"
+    setup_logging(log_file)
+
     logging.info("Running Creative Pathfinding Discovery...")
 
     pf = pq.ParquetFile(input_file)
@@ -220,3 +244,29 @@ def run(
             logging.warning(f"Failed to write debug summary: {e}")
 
     logging.info("Creative Pathfinding Discovery complete.")
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Creative Pathfinding Discovery")
+    parser.add_argument("--input-file", required=True)
+    parser.add_argument("--target-col", required=True)
+    parser.add_argument("--output-relationships-file", required=True)
+    parser.add_argument("--yolo-mode", action="store_true")
+    parser.add_argument("--feature-limit", type=int)
+    parser.add_argument("--row-limit", type=int)
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--debug-every-rows", type=int, default=10000)
+
+    args = parser.parse_args()
+
+    run(
+        input_file=args.input_file,
+        target_col=args.target_col,
+        output_relationships_file=args.output_relationships_file,
+        yolo_mode=args.yolo_mode,
+        feature_limit=args.feature_limit,
+        row_limit=args.row_limit,
+        debug=args.debug,
+        debug_every_rows=args.debug_every_rows,
+    )

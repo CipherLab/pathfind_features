@@ -53,6 +53,49 @@ def run_step_target_discovery(
     }
 
 
+def run_step_pathfinding(
+    input_file: str,
+    target_col: str,
+    output_relationships_file: str,
+    yolo_mode: bool = False,
+    feature_limit: int | None = None,
+    row_limit: int | None = None,
+    debug: bool = False,
+    debug_every_rows: int = 10000,
+) -> dict:
+    """Runs the Creative Pathfinding Discovery stage (step_02_pathfinding.py)."""
+    args = [
+        PY,
+        str(ROOT / "bootstrap_pipeline" / "steps" / "step_02_pathfinding.py"),
+        "--input-file",
+        input_file,
+        "--target-col",
+        target_col,
+        "--output-relationships-file",
+        output_relationships_file,
+    ]
+    if yolo_mode:
+        args.append("--yolo-mode")
+    if feature_limit is not None:
+        args.extend(["--feature-limit", str(feature_limit)])
+    if row_limit is not None:
+        args.extend(["--row-limit", str(row_limit)])
+    if debug:
+        args.append("--debug")
+    if debug_every_rows is not None:
+        args.extend(["--debug-every-rows", str(debug_every_rows)])
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+
+    result = subprocess.run(args, cwd=str(ROOT), capture_output=True, text=True, env=env)
+    return {
+        "code": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
 def apply_to_validation(input_data: str, era_weights: str, relationships_file: Optional[str], output_data: str,
                         max_new_features: int = 40, row_limit: Optional[int] = None) -> int:
     args = [PY, str(ROOT/"apply_bootstrap_to_validation.py"),

@@ -13,6 +13,7 @@ import OutputPanel from './panels/OutputPanel'
 import FeatureSourcePanel from './panels/FeatureSourcePanel'
 
 type Props = {
+  nodes: Node<NodeData>[]
   selection: Node<NodeData> | null
   edges: Edge[]
   onUpdate: (updater: (prev: NodeData) => NodeData) => void
@@ -242,7 +243,7 @@ function ParquetFilterConfigPanel({ cfg, updateData }: { cfg: any, updateData: (
   )
 }
 
-export default function Sidebar({ selection, edges, onUpdate, onRun, onDelete }: Props) {
+export default function Sidebar({ nodes, selection, edges, onUpdate, onRun, onDelete }: Props) {
   const [cfg, setCfg] = useState<any>(() => ({
     inputData: 'v5.0/train.parquet',
     featuresJson: 'v5.0/features.json',
@@ -316,10 +317,10 @@ export default function Sidebar({ selection, edges, onUpdate, onRun, onDelete }:
           <FeatureSourcePanel cfg={cfg} updateData={updateData} />
         )}
         {selection.data.kind === 'pathfinding' && (
-          <PathfindPanel cfg={cfg} updateData={updateData} />
+          <PathfindPanel cfg={cfg} updateData={updateData} nodes={nodes} edges={edges} selection={selection} />
         )}
         {selection.data.kind === 'feature-engineering' && (
-          <FeaturesPanel cfg={cfg} updateData={updateData} />
+          <FeaturesPanel cfg={cfg} updateData={updateData} nodes={nodes} edges={edges} selection={selection} />
         )}
         {selection.data.kind === 'transform' && (
           <TransformPanel cfg={cfg} updateData={updateData} />

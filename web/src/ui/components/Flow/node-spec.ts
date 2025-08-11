@@ -79,8 +79,19 @@ export const NodeConstraints: Record<
         required: true,
       },
     ],
-    outputs: [{ id: "out-targets", type: "JSON_ARTIFACT", label: "" }],
-    output: { id: "out-targets", type: "JSON_ARTIFACT", label: "" },
+    outputs: [
+      { id: "out-parquet", type: "PARQUET", label: "" },
+      {
+        id: "out-targets",
+        type: "JSON_ARTIFACT",
+        label: "",
+      },
+    ],
+    output: {
+      id: "out-parquet",
+      type: "PARQUET",
+      label: "adaptive_targets.parquet",
+    },
     description:
       "Discovers candidate targets from the parquet and emits targets.json.",
     canConnectTo: ["pathfinding"],
@@ -106,17 +117,17 @@ export const NodeConstraints: Record<
       {
         id: "out-relationships",
         type: "RELATIONSHIPS",
-        label: "relationships.json",
+        label: "",
       },
     ],
     output: {
       id: "out-relationships",
       type: "RELATIONSHIPS",
-      label: "relationships.json",
+      label: "",
     },
     description:
       "Explores relationships between features relative to targets; emits relationships.json.",
-    canConnectTo: ["feature-engineering"],
+    canConnectTo: ["feature-engineering", "pathfinding"],
   },
   "feature-engineering": {
     maxInputs: 2,
@@ -131,7 +142,7 @@ export const NodeConstraints: Record<
       {
         id: "in-artifact",
         type: "RELATIONSHIPS",
-        label: "relationships.json",
+        label: "",
         required: true,
       },
     ],
@@ -149,7 +160,7 @@ export const NodeConstraints: Record<
   },
   transform: {
     maxInputs: 1,
-    maxOutputs: 2,
+    maxOutputs: 999,
     inputs: [
       {
         id: "in-parquet",
@@ -175,6 +186,8 @@ export const NodeConstraints: Record<
       "output",
       "transform",
       "target-discovery",
+      "pathfinding",
+      "feature-engineering",
     ],
   },
   train: {

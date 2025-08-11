@@ -6,6 +6,7 @@ interface TargetDiscoveryConfig {
   smoke?: boolean
   smokeEras?: number
   smokeRows?: number
+  smokeTargets?: number
   walkForward?: boolean
   seed?: number
   targetsName?: string
@@ -57,14 +58,48 @@ export default function TargetDiscoveryConfig({ cfg, onChange }: Props) {
       </div>
 
       <div className="rounded-md border border-slate-700 bg-slate-900 p-3">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={cfg.smoke || false}
-            onChange={(e) => onChange({ smoke: e.target.checked })}
-          />
-          <span className="text-sm font-medium">Smoke mode</span>
-        </label>
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={cfg.smoke || false}
+              onChange={(e) => onChange({ smoke: e.target.checked })}
+            />
+            <span className="text-sm font-medium">Smoke mode</span>
+          </label>
+
+          {cfg.smoke && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() =>
+                  onChange({
+                    smokeEras: 20,
+                    smokeRows: 500,
+                    smokeTargets: 20,
+                  })
+                }
+              >
+                Quick Test
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() =>
+                  onChange({
+                    smokeEras: 100,
+                    smokeRows: 10000,
+                    smokeTargets: 50,
+                  })
+                }
+              >
+                Full Run
+              </button>
+            </div>
+          )}
+        </div>
+
         {cfg.smoke && (
           <div className="mt-2 grid grid-cols-1 gap-4 md:grid-cols-2">
             <label className="flex flex-col gap-2">
@@ -83,6 +118,15 @@ export default function TargetDiscoveryConfig({ cfg, onChange }: Props) {
                 type="number"
                 value={cfg.smokeRows || 0}
                 onChange={(e) => onChange({ smokeRows: parseInt(e.target.value || '0', 10) })}
+              />
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="text-sm">Targets cap</span>
+              <input
+                className="input"
+                type="number"
+                value={cfg.smokeTargets || 0}
+                onChange={(e) => onChange({ smokeTargets: parseInt(e.target.value || '0', 10) })}
               />
             </label>
           </div>

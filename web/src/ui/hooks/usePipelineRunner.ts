@@ -62,18 +62,13 @@ export function usePipelineRunner(
           const downstream = downIds();
           updated = ns.map((n) => {
             if (downstream.includes(n.id) && n.data.kind === "pathfinding") {
-              const desiredName = src.data.config?.targetsName as
-                | string
-                | undefined;
-              const fname =
-                desiredName && desiredName.trim().length > 0
-                  ? desiredName
-                  : `targets_${experimentName}.json`;
-              const targetsPath = `pipeline_runs/${experimentName}/${fname}`;
+              const parquetPath = src.data.config?.outputPath as string | undefined;
+              const discoveryPath = src.data.config?.discoveryPath as string | undefined;
               const cfg = {
                 ...n.data.config,
                 inheritTargetsFrom: src.id,
-                targetsJson: targetsPath,
+                ...(parquetPath ? { inputData: parquetPath } : {}),
+                ...(discoveryPath ? { targetsJson: discoveryPath } : {}),
               };
               const status = (
                 n.data.status === "idle" ? "configured" : n.data.status
@@ -89,10 +84,15 @@ export function usePipelineRunner(
               downstream.includes(n.id) &&
               n.data.kind === "feature-engineering"
             ) {
+              const producedRelPath = src.data.config?.relationshipsPath as
+                | string
+                | undefined;
               const cfg = {
                 ...n.data.config,
                 inheritRelationshipsFrom: src.id,
-                relationshipsJson: "relationships.json",
+                ...(producedRelPath
+                  ? { relationshipsJson: producedRelPath }
+                  : {}),
               };
               const status = (
                 n.data.status === "idle" ? "configured" : n.data.status
@@ -168,18 +168,35 @@ export function usePipelineRunner(
         if (data.kind === "target-discovery") {
           const output_file = `pipeline_runs/${experimentName}/01_adaptive_targets_${id}.parquet`;
           const discovery_file = `pipeline_runs/${experimentName}/01_target_discovery_${id}.json`;
+          const eras = cfg.smoke
+            ? cfg.smokeEras && cfg.smokeEras > 0
+              ? cfg.smokeEras
+              : undefined
+            : undefined;
+          const rows = cfg.smoke
+            ? cfg.smokeRows && cfg.smokeRows > 0
+              ? cfg.smokeRows
+              : undefined
+            : undefined;
+          const rawTargetsCap =
+            (cfg as any).smokeTargets ?? (cfg as any).smokeFeat;
+          const targetsCap = cfg.smoke
+            ? rawTargetsCap && rawTargetsCap > 0
+              ? rawTargetsCap
+              : undefined
+            : undefined;
           const payload = {
             input_file: cfg.inputData || "v5.0/train.parquet",
             features_json_file: cfg.featuresJson || "v5.0/features.json",
             output_file: output_file,
             discovery_file: discovery_file,
             skip_walk_forward: !(cfg.walkForward ?? true),
-            max_eras: cfg.smoke ? cfg.smokeEras : undefined,
-            row_limit: cfg.smoke ? cfg.smokeRows : undefined,
-            target_limit: cfg.smoke ? cfg.smokeFeat : undefined, // Note: UI calls this 'smokeFeat'
+            max_eras: eras,
+            row_limit: rows,
+            target_limit: targetsCap,
           };
           const result = await jpost("/steps/target-discovery", payload);
-          
+
           setNodes((ns) =>
             ns.map((n) =>
               n.id === id
@@ -197,6 +214,86 @@ export function usePipelineRunner(
                   }
                 : n
             )
+          );
+        } else if (data.kind === "pathfinding") {
+          // Resolve required inputs: parquet and targets json
+          let parquetPath: string | undefined = cfg.inputData;
+          let targetsJsonPath: string | undefined = cfg.targetsJson;
+          if (!parquetPath || !targetsJsonPath) {
+            const incoming = edges.filter((e) => e.target === id);
+            for (const e of incoming) {
+              const up = nodes.find((n) => n.id === e.source);
+              if (!up) continue;
+              if (e.sourceHandle === "out-parquet") {
+                parquetPath =
+                  up.data.config.outputPath ||
+                  up.data.config.inputData ||
+                  parquetPath;
+              }
+              if (e.sourceHandle === "out-discovery") {
+                targetsJsonPath =
+                  up.data.config.discoveryPath ||
+                  up.data.config.targetsJson ||
+                  targetsJsonPath;
+              }
+            }
+          }
+          if (!parquetPath || !targetsJsonPath) {
+            throw new Error(
+              "Pathfinding requires both parquet and targets.json inputs"
+            );
+          }
+
+          const relationships_file = `pipeline_runs/${experimentName}/02_relationships_${id}.json`;
+          // Map config
+          const yolo_mode = Boolean(cfg.yolo);
+          const feature_limit =
+            cfg.featureLimit && cfg.featureLimit > 0
+              ? cfg.featureLimit
+              : undefined;
+          const debug = Boolean(cfg.debug);
+          const payload = {
+            input_file: parquetPath,
+            target_col: "adaptive_target",
+            output_relationships_file: relationships_file,
+            yolo_mode,
+            feature_limit,
+            debug,
+          } as any;
+          const result = await jpost("/steps/pathfinding", payload);
+
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === id
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      config: {
+                        ...n.data.config,
+                        relationshipsPath:
+                          result.relationships_file || relationships_file,
+                        logs: result.stdout,
+                      },
+                    },
+                  }
+                : n
+            )
+          );
+          // Update outgoing edge labels
+          setEdges((es) =>
+            es.map((e) => {
+              if (e.source !== id) return e;
+              const outName = (result.relationships_file || relationships_file)
+                .split("/")
+                .pop()!;
+              const color = (e.style && (e.style as any).stroke) || "#ef4444";
+              return {
+                ...e,
+                label: outName,
+                labelStyle: { fill: color, fontSize: 10 },
+              } as any;
+            })
           );
         } else if (data.kind === "transform") {
           const inputEdge = edges.find((e) => e.target === id);

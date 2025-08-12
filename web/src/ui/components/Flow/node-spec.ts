@@ -6,12 +6,24 @@ export const HandleTypes: Record<
   PayloadType,
   {
     color: string;
-    shape: "square" | "circle" | "diamond" | "star" | "triangle";
+    shape:
+      | "square"
+      | "circle"
+      | "diamond"
+      | "star"
+      | "triangle"
+      | "hexagon"
+      | "pentagon";
   }
 > = {
   PARQUET: { color: "#22d3ee", shape: "square" },
   JSON_ARTIFACT: { color: "#a855f7", shape: "circle" },
   RELATIONSHIPS: { color: "#ef4444", shape: "triangle" },
+  ADAPTIVE_TARGETS_PARQUET: { color: "#34d399", shape: "diamond" },
+  TARGET_DISCOVERY_JSON: { color: "#facc15", shape: "star" },
+  // New TD → PF handoff payloads with distinct visuals
+  TD_CANDIDATE_TARGETS: { color: "#10b981", shape: "hexagon" },
+  TD_DISCOVERY_META: { color: "#f97316", shape: "pentagon" },
   FINAL_OUTPUT: { color: "#f59e0b", shape: "star" },
 };
 
@@ -64,7 +76,7 @@ export const NodeConstraints: Record<
   },
   "target-discovery": {
     maxInputs: 2,
-    maxOutputs: 999,
+    maxOutputs: 2,
     inputs: [
       {
         id: "in-parquet",
@@ -80,18 +92,17 @@ export const NodeConstraints: Record<
       },
     ],
     outputs: [
-      { id: "out-parquet", type: "PARQUET", label: "" },
       {
-        id: "out-targets",
-        type: "JSON_ARTIFACT",
+        id: "out-adaptive-targets",
+        type: "TD_CANDIDATE_TARGETS",
+        label: "",
+      },
+      {
+        id: "out-target-discovery",
+        type: "TD_DISCOVERY_META",
         label: "",
       },
     ],
-    output: {
-      id: "out-parquet",
-      type: "PARQUET",
-      label: "adaptive_targets.parquet",
-    },
     description:
       "Discovers candidate targets from the parquet and emits targets.json.",
     canConnectTo: ["pathfinding"],
@@ -101,14 +112,14 @@ export const NodeConstraints: Record<
     maxOutputs: 1,
     inputs: [
       {
-        id: "in-parquet",
-        type: "PARQUET",
+        id: "in-adaptive-targets",
+        type: "TD_CANDIDATE_TARGETS",
         label: "",
         required: true,
       },
       {
-        id: "in-artifact",
-        type: "JSON_ARTIFACT",
+        id: "in-target-discovery",
+        type: "TD_DISCOVERY_META",
         label: "",
         required: true,
       },
@@ -348,6 +359,14 @@ export const styleFor = (
     case "star":
       style.clipPath =
         "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)";
+      break;
+    case "hexagon":
+      // regular-ish hexagon
+      style.clipPath =
+        "polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%)";
+      break;
+    case "pentagon":
+      style.clipPath = "polygon(50% 0%, 100% 38%, 81% 100%, 19% 100%, 0% 38%)";
       break;
   }
   return style;

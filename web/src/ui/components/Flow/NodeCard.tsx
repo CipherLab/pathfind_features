@@ -69,6 +69,12 @@ export default function NodeCard(props: NodeProps<FlowNode<NodeData>>) {
       case 'triangle':
         base.clipPath = 'polygon(50% 0%, 0% 100%, 100% 100%)'
         break
+      case 'hexagon':
+        base.clipPath = 'polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%)'
+        break
+      case 'pentagon':
+        base.clipPath = 'polygon(50% 0%, 100% 38%, 81% 100%, 19% 100%, 0% 38%)'
+        break
     }
     return base
   }

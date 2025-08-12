@@ -110,14 +110,7 @@ export default function TargetsPanel({ cfg, updateData }: Props) {
         />
         <div className="text-xs text-slate-400 mt-1">Will save using a 'targets_' prefix.</div>
       </div>
-      <label className="row-center">
-        <input
-          type="checkbox"
-          checked={cfg.pretty}
-          onChange={e => updateData({ pretty: e.target.checked })}
-        />{' '}
-        Pretty output
-      </label>
+
     </div>
   )
 }

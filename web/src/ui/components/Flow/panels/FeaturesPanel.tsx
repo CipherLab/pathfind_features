@@ -62,7 +62,7 @@ export default function FeaturesPanel({ cfg, updateData, nodes, edges, selection
         <input
           className="input"
           type="number"
-          value={cfg.maxNew}
+          value={cfg.maxNew || 0}
           min={1}
           max={upstreamMaxNew > 0 ? upstreamMaxNew : undefined}
           onChange={e => {
@@ -79,14 +79,7 @@ export default function FeaturesPanel({ cfg, updateData, nodes, edges, selection
           <div className="text-xs text-red-400">Value exceeds upstream cap; clamped.</div>
         )}
       </label>
-      <label className="row-center">
-        <input
-          type="checkbox"
-          checked={cfg.pretty}
-          onChange={e => updateData({ pretty: e.target.checked })}
-        />{' '}
-        Pretty output
-      </label>
+      
     </div>
   )
 }

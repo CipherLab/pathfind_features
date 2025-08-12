@@ -198,9 +198,7 @@ export default function ParameterForm(p: Props){
       <div className="mb-4 rounded-md border border-slate-700 bg-slate-900 p-3">
         <div className="mb-2 text-sm font-semibold text-slate-100">Advanced Toggles</div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <label className="flex items-center gap-2">
-            <input type="checkbox" checked={p.pretty} onChange={e=>p.setPretty(e.target.checked)} /> Pretty output
-          </label>
+
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={p.disablePF} onChange={e=>p.setDisablePF(e.target.checked)} /> Disable pathfinding
           </label>

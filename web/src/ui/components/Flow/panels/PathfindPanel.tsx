@@ -16,7 +16,7 @@ export default function PathfindPanel({ cfg, updateData, nodes, edges, selection
   const upstreamTargetCap = getUpstreamCap
     ? getUpstreamCap(selection, 'features')
     : (() => {
-        const edge = edges.find(e => e.target === selection.id && e.targetHandle === 'adaptive_targets');
+        const edge = edges.find(e => e.target === selection.id && e.targetHandle === 'in-adaptive-targets');
         if (!edge) return 0;
         const upstream = nodes.find(n => n.id === edge.source);
         return upstream?.data?.config?.smokeTargets || 0;
@@ -105,14 +105,7 @@ export default function PathfindPanel({ cfg, updateData, nodes, edges, selection
         />{' '}
         Disable pathfinding
       </label>
-      <label className="row-center">
-        <input
-          type="checkbox"
-          checked={cfg.pretty}
-          onChange={e => updateData({ pretty: e.target.checked })}
-        />{' '}
-        Pretty output
-      </label>
+
     </div>
   )
 }

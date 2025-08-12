@@ -33,5 +33,10 @@ export type PayloadType =
   | "PARQUET"
   | "JSON_ARTIFACT"
   | "RELATIONSHIPS"
+  | "ADAPTIVE_TARGETS_PARQUET"
+  | "TARGET_DISCOVERY_JSON"
+  // New, distinct types for Target Discovery → Pathfinding handoff
+  | "TD_CANDIDATE_TARGETS"
+  | "TD_DISCOVERY_META"
   | "ENHANCED_DATA"
   | "FINAL_OUTPUT";

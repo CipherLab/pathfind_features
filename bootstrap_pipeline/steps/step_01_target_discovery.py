@@ -9,9 +9,14 @@ import logging
 import os
 import time
 import sys
+import hashlib
+import shutil
 from pathlib import Path
 from bootstrap_pipeline.bootstrap.target_discovery import WalkForwardTargetDiscovery
 from bootstrap_pipeline.utils.utils import reduce_mem_usage
+
+# Bump this when changing discovery/caching behavior to invalidate old cache entries
+ALGO_VERSION = "td-v1.1"
 
 def setup_logging(log_file):
     """Initializes logging to both file and console for a specific run."""
@@ -22,17 +27,44 @@ def setup_logging(log_file):
     log_dir = Path(log_file).parent
     log_dir.mkdir(parents=True, exist_ok=True)
     
+    # If an outer process (API/pipeline runner) is already capturing stdout to the same log file,
+    # avoid double-logging by only emitting to stdout here. That outer process will write to file.
+    stdout_only = bool(os.environ.get("PIPELINE_LOG_TO_STDOUT_ONLY", "").strip())
+    handlers = [logging.StreamHandler(sys.stdout)]
+    if not stdout_only:
+        handlers.insert(0, logging.FileHandler(log_file))
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout)
-        ]
+        handlers=handlers,
     )
 
-def run(input_file: str, features_json_file: str, output_file: str, discovery_file: str, skip_walk_forward: bool = False,
-    max_eras: int | None = None, row_limit: int | None = None, target_limit: int | None = None, **kwargs):
+def _file_md5(path: str, chunk_size: int = 8 * 1024 * 1024) -> str:
+    """Compute MD5 of a file by streaming chunks (memory-safe for large parquet)."""
+    h = hashlib.md5()
+    with open(path, 'rb') as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def run(
+    input_file: str,
+    features_json_file: str,
+    output_file: str,
+    discovery_file: str,
+    skip_walk_forward: bool = False,
+    max_eras: int | None = None,
+    row_limit: int | None = None,
+    target_limit: int | None = None,
+    cache_dir: str | None = None,
+    force_recache: bool = False,
+    **kwargs,
+):
     """
     Performs the Target Bootstrap Discovery stage.
     This function contains the core logic from the original fast_target_bootstrap.py.
@@ -41,7 +73,7 @@ def run(input_file: str, features_json_file: str, output_file: str, discovery_fi
     log_file = run_dir / "logs.log"
     setup_logging(log_file)
 
-    logging.info(f"Running Target Bootstrap Discovery...")
+    logging.info(f"Running Target Bootstrap Discovery (algo={ALGO_VERSION})...")
     logging.info(f"Input: {input_file}")
     logging.info(f"Output: {output_file}")
 
@@ -75,17 +107,107 @@ def run(input_file: str, features_json_file: str, output_file: str, discovery_fi
 
     logging.info(f"Using {len(target_columns)} targets and {len(feature_columns)} features")
 
+    # -------- Cache key & early return --------
+    try:
+        input_hash = _file_md5(input_file)
+    except Exception:
+        input_hash = f"sz{os.path.getsize(input_file)}_mt{int(os.path.getmtime(input_file))}"
+    try:
+        features_hash = _file_md5(features_json_file)
+    except Exception:
+        try:
+            features_hash = hashlib.md5(Path(features_json_file).read_bytes()).hexdigest()
+        except Exception:
+            features_hash = f"sz{os.path.getsize(features_json_file)}_mt{int(os.path.getmtime(features_json_file))}"
+
+    cache_payload = {
+        "algo": ALGO_VERSION,
+        "input_hash": input_hash,
+        "features_hash": features_hash,
+        "skip_walk_forward": bool(skip_walk_forward),
+        "max_eras": int(max_eras) if max_eras is not None else None,
+        "row_limit": int(row_limit) if row_limit is not None else None,
+        "target_limit": int(target_limit) if target_limit is not None else None,
+        "targets": target_columns[: (target_limit or len(target_columns))],
+    }
+    cache_sig = hashlib.md5(json.dumps(cache_payload, sort_keys=True).encode("utf-8")).hexdigest()
+    # Resolve cache dir
+    default_cache_dir = os.environ.get("TARGET_DISCOVERY_CACHE_DIR", "cache/target_discovery_cache")
+    use_cache_dir = Path(cache_dir or default_cache_dir)
+    use_cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_parquet = use_cache_dir / f"td_{cache_sig}.parquet"
+    cache_weights = use_cache_dir / f"td_{cache_sig}.weights.json"
+
+    if (not force_recache) and (not skip_walk_forward) and cache_parquet.exists() and cache_weights.exists():
+        logging.info(
+            "CACHE HIT: Reusing target discovery outputs for signature %s\n  -> %s\n  -> %s",
+            cache_sig,
+            str(cache_parquet),
+            str(cache_weights),
+        )
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(discovery_file).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(cache_parquet, output_file)
+        shutil.copyfile(cache_weights, discovery_file)
+        logging.info("Target Bootstrap Discovery complete (from cache).")
+        return
+
     era_df = pd.read_parquet(input_file, columns=['era'])
     unique_eras = sorted(era_df['era'].unique())
     if max_eras is not None:
         unique_eras = unique_eras[:max_eras]
+
+    # Row-limit aware restriction: only discover weights for eras actually needed to write out
+    if row_limit is not None:
+        needed = set()
+        seen = 0
+        for batch in pf.iter_batches(batch_size=50000, columns=['era']):
+            batch_series = batch.to_pandas()['era']
+            needed.update(batch_series.tolist())
+            seen += len(batch_series)
+            if seen >= row_limit:
+                break
+        needed = sorted(needed)
+        before = len(unique_eras)
+        unique_eras = [e for e in unique_eras if e in needed]
+        logging.info(
+            "Row-limit aware: restricting discovery eras from %s to %s based on first %s rows.",
+            before,
+            len(unique_eras),
+            row_limit,
+        )
 
     total_rows = pf.metadata.num_rows
     logging.info(
         f"Processing {len(unique_eras)} eras and up to {row_limit or total_rows} rows",
     )
 
-    target_discovery = WalkForwardTargetDiscovery(target_columns, 20)
+    # Initialize discovery with optional tuning kwargs forwarded from CLI / env
+    td_kwargs = {}
+    # Pull from kwargs if provided (CLI wiring added below)
+    for k in [
+        'td_eval_mode','td_top_full_models','td_ridge_lambda','td_sample_per_era',
+        'td_max_combinations','td_feature_fraction','td_num_boost_round',
+        'td_max_era_cache','td_clear_cache_every','td_pre_cache_dir','td_persist_pre_cache'
+    ]:
+        if k in kwargs and kwargs[k] is not None:
+            td_kwargs[k] = kwargs[k]
+    # Map CLI-style names to constructor parameter names
+    mapping = {
+        'td_eval_mode':'eval_mode',
+        'td_top_full_models':'top_full_models',
+        'td_ridge_lambda':'ridge_lambda',
+        'td_sample_per_era':'sample_per_era',
+        'td_max_combinations':'max_combinations',
+        'td_feature_fraction':'feature_fraction',
+        'td_num_boost_round':'num_boost_round',
+        'td_max_era_cache':'max_era_cache',
+        'td_clear_cache_every':'clear_cache_every',
+        'td_pre_cache_dir':'pre_cache_dir',
+        'td_persist_pre_cache':'persist_pre_cache',
+    }
+    ctor_kwargs = {mapping[k]:v for k,v in td_kwargs.items()}
+    target_discovery = WalkForwardTargetDiscovery(target_columns, 20, **ctor_kwargs)
 
     if skip_walk_forward:
         logging.warning("---\n⏩ SKIPPING WALK-FORWARD DISCOVERY ⏩\nUsing equal weights for all eras. This is for parameter tuning ONLY.\n---")
@@ -94,9 +216,26 @@ def run(input_file: str, features_json_file: str, output_file: str, discovery_fi
     else:
         logging.info("Starting walk-forward discovery loop...")
         start = time.time()
+        # Warmup: skip discovery for the first N eras. Ensure we don't skip ALL eras on short runs.
+        configured_warmup = 20
+        warmup = min(configured_warmup, max(0, len(unique_eras) - 1))
+        if warmup < configured_warmup:
+            logging.info(
+                "Adjusted warmup from %s to %s to allow discovery with only %s eras",
+                configured_warmup,
+                warmup,
+                len(unique_eras),
+            )
+        if len(unique_eras) - warmup <= 1:
+            logging.warning(
+                "Warmup of %s eras leaves only %s era for discovery (total eras=%s). Most weights will be equal-weight baselines.",
+                warmup,
+                len(unique_eras) - warmup,
+                len(unique_eras),
+            )
         for i, current_era in enumerate(unique_eras):
             logging.info(f"Processing era {i+1}/{len(unique_eras)}: {current_era}")
-            if i < 20:
+            if i < warmup:
                 logging.info("Skipping weight discovery for initial eras.")
                 target_discovery.era_weights[current_era] = np.ones(len(target_columns)) / len(target_columns)
                 continue
@@ -108,9 +247,11 @@ def run(input_file: str, features_json_file: str, output_file: str, discovery_fi
                 filters=[('era', 'in', history_eras)],
                 columns=target_columns + feature_columns + ['era']
             )
-            logging.info("Reducing memory usage of history dataframe...")
-            history_df = reduce_mem_usage(history_df, _verbose=False)
-            logging.info("Finished reading history.")
+            # Optional memory reduction (skip if ENV set for speed, since we sample anyway)
+            if not os.environ.get("TD_SKIP_REDUCE_MEM"):
+                logging.info("Reducing memory usage of history dataframe...")
+                history_df = reduce_mem_usage(history_df, _verbose=False)
+            logging.info("Finished reading history (%d rows).", len(history_df))
 
             logging.info("Discovering optimal weights...")
             optimal_weights = target_discovery.discover_weights_for_era(
@@ -118,6 +259,9 @@ def run(input_file: str, features_json_file: str, output_file: str, discovery_fi
             )
             target_discovery.era_weights[current_era] = optimal_weights
             logging.info("Finished discovering optimal weights.")
+
+            # Periodic cache maintenance
+            target_discovery.maybe_periodic_cache_clear(i)
 
             del history_df
             import gc
@@ -163,9 +307,21 @@ def run(input_file: str, features_json_file: str, output_file: str, discovery_fi
                 weights = target_discovery.era_weights[era]
             else:
                 weights = np.ones(len(target_columns)) / len(target_columns)
-            
-            target_values = [row[col] for col in target_columns]
-            adaptive_target = np.dot(target_values, weights)
+
+            # Robust weighted aggregation: handle NaNs by renormalizing weights over available targets
+            target_values = np.array([row[col] for col in target_columns], dtype=float)
+            weights = np.asarray(weights, dtype=float)
+            mask = np.isfinite(target_values) & np.isfinite(weights)
+            if not np.any(mask):
+                adaptive_target = 0.0  # fallback when row has no valid target values
+            else:
+                w = weights[mask]
+                w_sum = w.sum()
+                if w_sum <= 0 or not np.isfinite(w_sum):
+                    w = np.ones(mask.sum(), dtype=float) / mask.sum()
+                else:
+                    w = w / w_sum
+                adaptive_target = float(np.dot(target_values[mask], w))
             adaptive_targets.append(adaptive_target)
         
         batch_df['adaptive_target'] = adaptive_targets
@@ -176,18 +332,20 @@ def run(input_file: str, features_json_file: str, output_file: str, discovery_fi
         writer.write_table(table)
         processed_rows += len(batch_df)
 
-        arr = np.array(adaptive_targets)
-        batch_count = arr.size
-        batch_mean = arr.mean()
-        batch_M2 = ((arr - batch_mean) ** 2).sum()
-        delta = batch_mean - stats_mean
-        combined = stats_count + batch_count
-        if combined > 0:
+        arr = np.asarray(adaptive_targets, dtype=float)
+        arr_finite = arr[np.isfinite(arr)]
+        batch_count = arr_finite.size
+        if batch_count > 0:
+            batch_mean = float(arr_finite.mean())
+            # Sum of squares of differences from the batch mean
+            batch_M2 = float(((arr_finite - batch_mean) ** 2).sum())
+            delta = batch_mean - stats_mean
+            combined = stats_count + batch_count
             stats_mean = (stats_mean * stats_count + batch_mean * batch_count) / combined
-            stats_M2 += batch_M2 + delta ** 2 * stats_count * batch_count / combined
-        stats_count = combined
-        stats_min = min(stats_min, arr.min())
-        stats_max = max(stats_max, arr.max())
+            stats_M2 += batch_M2 + (delta ** 2) * stats_count * batch_count / combined
+            stats_count = combined
+            stats_min = min(stats_min, float(arr_finite.min()))
+            stats_max = max(stats_max, float(arr_finite.max()))
 
         if processed_rows >= target_total_rows:
             logging.info(f"Processed {processed_rows}/{target_total_rows} rows (100.0%)")
@@ -200,8 +358,21 @@ def run(input_file: str, features_json_file: str, output_file: str, discovery_fi
     if writer:
         writer.close()
 
+    # Write weights file
     with open(discovery_file, 'w') as f:
         json.dump({str(k): v.tolist() for k, v in target_discovery.era_weights.items()}, f, indent=2)
+
+    # Save outputs to cache for reuse (best-effort)
+    try:
+        tmp_parquet = cache_parquet.with_suffix(".parquet.tmp")
+        tmp_weights = cache_weights.with_suffix(".json.tmp")
+        shutil.copyfile(output_file, tmp_parquet)
+        shutil.copyfile(discovery_file, tmp_weights)
+        tmp_parquet.replace(cache_parquet)
+        tmp_weights.replace(cache_weights)
+        logging.info("CACHE SAVE: Stored outputs for signature %s in %s", cache_sig, str(use_cache_dir))
+    except Exception:
+        logging.warning("Failed to save cache artifacts (non-fatal).", exc_info=True)
 
     if stats_count:
         variance = stats_M2 / stats_count
@@ -232,6 +403,20 @@ if __name__ == "__main__":
     parser.add_argument("--max-eras", type=int)
     parser.add_argument("--row-limit", type=int)
     parser.add_argument("--target-limit", type=int)
+    parser.add_argument("--cache-dir", type=str, default=None, help="Directory to store/reuse cached outputs")
+    parser.add_argument("--force-recache", action="store_true", help="Ignore cache and recompute")
+    # Tuning knobs for discovery speed/quality
+    parser.add_argument("--td-eval-mode", choices=["gbm_full","linear_fast","hybrid"], help="Evaluation mode for target discovery")
+    parser.add_argument("--td-top-full-models", type=int, help="Top K combos to refine with full models in hybrid mode")
+    parser.add_argument("--td-ridge-lambda", type=float, help="Ridge regularization for linear screening")
+    parser.add_argument("--td-sample-per-era", type=int, help="Rows sampled per era for discovery")
+    parser.add_argument("--td-max-combinations", type=int, help="Max weight combinations to test")
+    parser.add_argument("--td-feature-fraction", type=float, help="Feature fraction for model training")
+    parser.add_argument("--td-num-boost-round", type=int, help="LightGBM boosting rounds for full models")
+    parser.add_argument("--td-max-era-cache", type=int, help="Max eras to keep in preprocessing cache (0 = unlimited)")
+    parser.add_argument("--td-clear-cache-every", type=int, help="Clear entire preprocessing cache every N discovery eras (0 = never)")
+    parser.add_argument("--td-pre-cache-dir", type=str, help="Directory for persistent preprocessed era cache")
+    parser.add_argument("--td-persist-pre-cache", action="store_true", help="Persist per-era preprocessing cache to disk")
 
     args = parser.parse_args()
 
@@ -244,4 +429,17 @@ if __name__ == "__main__":
         max_eras=args.max_eras,
         row_limit=args.row_limit,
         target_limit=args.target_limit,
+        cache_dir=args.cache_dir,
+        force_recache=args.force_recache,
+        td_eval_mode=args.td_eval_mode,
+        td_top_full_models=args.td_top_full_models,
+        td_ridge_lambda=args.td_ridge_lambda,
+        td_sample_per_era=args.td_sample_per_era,
+        td_max_combinations=args.td_max_combinations,
+        td_feature_fraction=args.td_feature_fraction,
+        td_num_boost_round=args.td_num_boost_round,
+    td_max_era_cache=args.td_max_era_cache,
+    td_clear_cache_every=args.td_clear_cache_every,
+    td_pre_cache_dir=args.td_pre_cache_dir,
+    td_persist_pre_cache=args.td_persist_pre_cache,
     )

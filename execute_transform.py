@@ -9,7 +9,8 @@ def main():
     parser.add_argument("--input-data", required=True)
     parser.add_argument("--transform-script", required=True)
     parser.add_argument("--output-data", required=True)
-    args = parser.parse_args()
+    # Allow arbitrary passthrough args to be forwarded to the transform script
+    args, extra = parser.parse_known_args()
 
     # Run the transform script in a subprocess for sandboxing
     Path(args.output_data).parent.mkdir(parents=True, exist_ok=True)
@@ -23,7 +24,8 @@ def main():
             sys.executable,
             args.transform_script,
             "--input-data", args.input_data,
-            "--output-data", args.output_data
+            "--output-data", args.output_data,
+            *extra,
         ],
         capture_output=True,
         text=True,

@@ -1,5 +1,6 @@
 import * as React from 'react'
 import GlobalPickerModal from '../Wizard/GlobalPickerModal'
+import { API_BASE } from '../../lib/api'
 
 interface TargetDiscoveryConfig {
   inputData?: string
@@ -19,11 +20,31 @@ type Props = {
 
 export default function TargetDiscoveryConfig({ cfg, onChange }: Props) {
   const [open, setOpen] = React.useState<null | 'parquet'>(null)
+  const [maxHint, setMaxHint] = React.useState<{eras?: number; rows?: number} | null>(null)
 
   const ensureTargetsPrefix = (name: string) => {
     const base = (name || '').trim().replace(/\.json$/i, '')
     const withPrefix = base.startsWith('targets_') ? base : `targets_${base}`
     return `${withPrefix}.json`
+  }
+
+  const fetchDatasetStats = async () => {
+    if (!cfg.inputData) return null
+    try {
+      const r = await fetch(`${API_BASE}/datasets/stats`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: cfg.inputData, era_col: 'era' }),
+      })
+      if (!r.ok) return null
+      const data = await r.json()
+      const eras = typeof data?.distinct_eras === 'number' ? data.distinct_eras : undefined
+      const rows = typeof data?.rows === 'number' ? data.rows : undefined
+      setMaxHint({ eras, rows })
+      return { eras, rows }
+    } catch {
+      return null
+    }
   }
 
   return (
@@ -103,19 +124,49 @@ export default function TargetDiscoveryConfig({ cfg, onChange }: Props) {
         {cfg.smoke && (
           <div className="mt-2 grid grid-cols-1 gap-4 md:grid-cols-2">
             <label className="flex flex-col gap-2">
-              <span className="text-sm">Era limit</span>
+              <span className="flex items-center justify-between text-sm">
+                <span>Era limit</span>
+                <button
+                  type="button"
+                  className="btn-secondary px-2 py-1 text-xs"
+                  onClick={async () => {
+                    const s = (await fetchDatasetStats()) || maxHint
+                    const v = s?.eras ?? 0
+                    onChange({ smokeEras: v })
+                  }}
+                  title={maxHint?.eras ? `Max eras: ${maxHint.eras}` : 'Set to max eras in dataset'}
+                >
+                  Max
+                </button>
+              </span>
               <input
                 className="input"
                 type="number"
+                max={maxHint?.eras}
                 value={cfg.smokeEras || 0}
                 onChange={(e) => onChange({ smokeEras: parseInt(e.target.value || '0', 10) })}
               />
             </label>
             <label className="flex flex-col gap-2">
-              <span className="text-sm">Row limit</span>
+              <span className="flex items-center justify-between text-sm">
+                <span>Row limit</span>
+                <button
+                  type="button"
+                  className="btn-secondary px-2 py-1 text-xs"
+                  onClick={async () => {
+                    const s = (await fetchDatasetStats()) || maxHint
+                    const v = s?.rows ?? 0
+                    onChange({ smokeRows: v })
+                  }}
+                  title={maxHint?.rows ? `Max rows: ${maxHint.rows}` : 'Set to total rows in dataset'}
+                >
+                  Max
+                </button>
+              </span>
               <input
                 className="input"
                 type="number"
+                max={maxHint?.rows}
                 value={cfg.smokeRows || 0}
                 onChange={(e) => onChange({ smokeRows: parseInt(e.target.value || '0', 10) })}
               />

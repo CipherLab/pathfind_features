@@ -20,13 +20,15 @@ def setup_logging(log_file: str | os.PathLike):
     log_dir = Path(log_file).parent
     log_dir.mkdir(parents=True, exist_ok=True)
 
+    stdout_only = bool(os.environ.get("PIPELINE_LOG_TO_STDOUT_ONLY", "").strip())
+    handlers = [logging.StreamHandler(sys.stdout)]
+    if not stdout_only:
+        handlers.insert(0, logging.FileHandler(log_file))
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout),
-        ],
+        handlers=handlers,
     )
 
 

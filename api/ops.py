@@ -12,20 +12,33 @@ PY = str((ROOT/".venv/bin/python") if (ROOT/".venv/bin/python").exists() else sy
 
 
 def run_step_target_discovery(
-    input_file: str, 
-    features_json_file: str, 
-    output_file: str, 
-    discovery_file: str, 
+    input_file: str,
+    features_json_file: str,
+    output_file: str,
+    discovery_file: str,
     skip_walk_forward: bool = False,
-    max_eras: int | None = None, 
-    row_limit: int | None = None, 
-    target_limit: int | None = None
+    max_eras: int | None = None,
+    row_limit: int | None = None,
+    target_limit: int | None = None,
+    cache_dir: str | None = None,
+    force_recache: bool = False,
+    td_eval_mode: str | None = None,
+    td_top_full_models: int | None = None,
+    td_ridge_lambda: float | None = None,
+    td_sample_per_era: int | None = None,
+    td_max_combinations: int | None = None,
+    td_feature_fraction: float | None = None,
+    td_num_boost_round: int | None = None,
+    td_max_era_cache: int | None = None,
+    td_clear_cache_every: int | None = None,
+    td_pre_cache_dir: str | None = None,
+    td_persist_pre_cache: bool = False,
 ) -> dict:
     """
     Runs the Target Bootstrap Discovery stage (step_01_target_discovery.py).
     """
     args = [
-        PY, 
+        PY,
         str(ROOT / "bootstrap_pipeline" / "steps" / "step_01_target_discovery.py"),
         "--input-file", input_file,
         "--features-json-file", features_json_file,
@@ -40,9 +53,36 @@ def run_step_target_discovery(
         args.extend(["--row-limit", str(row_limit)])
     if target_limit is not None:
         args.extend(["--target-limit", str(target_limit)])
+    if cache_dir:
+        args.extend(["--cache-dir", cache_dir])
+    if force_recache:
+        args.append("--force-recache")
+    if td_eval_mode:
+        args.extend(["--td-eval-mode", td_eval_mode])
+    if td_top_full_models is not None:
+        args.extend(["--td-top-full-models", str(td_top_full_models)])
+    if td_ridge_lambda is not None:
+        args.extend(["--td-ridge-lambda", str(td_ridge_lambda)])
+    if td_sample_per_era is not None:
+        args.extend(["--td-sample-per-era", str(td_sample_per_era)])
+    if td_max_combinations is not None:
+        args.extend(["--td-max-combinations", str(td_max_combinations)])
+    if td_feature_fraction is not None:
+        args.extend(["--td-feature-fraction", str(td_feature_fraction)])
+    if td_num_boost_round is not None:
+        args.extend(["--td-num-boost-round", str(td_num_boost_round)])
+    if td_max_era_cache is not None:
+        args.extend(["--td-max-era-cache", str(td_max_era_cache)])
+    if td_clear_cache_every is not None:
+        args.extend(["--td-clear-cache-every", str(td_clear_cache_every)])
+    if td_pre_cache_dir:
+        args.extend(["--td-pre-cache-dir", td_pre_cache_dir])
+    if td_persist_pre_cache:
+        args.append("--td-persist-pre-cache")
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    env["PIPELINE_LOG_TO_STDOUT_ONLY"] = "1"
 
     result = subprocess.run(args, cwd=str(ROOT), capture_output=True, text=True, env=env)
     
@@ -62,6 +102,16 @@ def run_step_pathfinding(
     row_limit: int | None = None,
     debug: bool = False,
     debug_every_rows: int = 10000,
+    cache_dir: str | None = None,
+    run_sanity_check: bool = False,
+    pf_feature_cap: int | None = None,
+    n_paths: int | None = None,
+    max_path_length: int | None = None,
+    min_strength: float | None = None,
+    top_k: int | None = None,
+    batch_size: int | None = None,
+    last_n_eras: int | None = None,
+    era_col: str | None = None,
 ) -> dict:
     """Runs the Creative Pathfinding Discovery stage (step_02_pathfinding.py)."""
     args = [
@@ -84,9 +134,30 @@ def run_step_pathfinding(
         args.append("--debug")
     if debug_every_rows is not None:
         args.extend(["--debug-every-rows", str(debug_every_rows)])
+    if cache_dir:
+        args.extend(["--cache-dir", cache_dir])
+    if run_sanity_check:
+        args.append("--run-sanity-check")
+    if pf_feature_cap is not None:
+        args.extend(["--pf-feature-cap", str(pf_feature_cap)])
+    if n_paths is not None:
+        args.extend(["--n-paths", str(n_paths)])
+    if max_path_length is not None:
+        args.extend(["--max-path-length", str(max_path_length)])
+    if min_strength is not None:
+        args.extend(["--min-strength", str(min_strength)])
+    if top_k is not None:
+        args.extend(["--top-k", str(top_k)])
+    if batch_size is not None:
+        args.extend(["--batch-size", str(batch_size)])
+    if last_n_eras is not None:
+        args.extend(["--last-n-eras", str(last_n_eras)])
+    if era_col:
+        args.extend(["--era-col", era_col])
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    env["PIPELINE_LOG_TO_STDOUT_ONLY"] = "1"
 
     result = subprocess.run(args, cwd=str(ROOT), capture_output=True, text=True, env=env)
     return {
@@ -146,7 +217,7 @@ def list_transforms() -> List[Dict[str, str]]:
             })
     return transforms
 
-def execute_transform(input_data: str, transform_script: str, output_data: str) -> dict:
+def execute_transform(input_data: str, transform_script: str, output_data: str, script_args: list[str] | None = None) -> dict:
     # The transform_script is the actual python code, so we need to save it to a temporary file
     # and pass the file path to the execute_transform.py script.
     
@@ -162,6 +233,8 @@ def execute_transform(input_data: str, transform_script: str, output_data: str) 
             "--input-data", input_data,
             "--transform-script", script_path,
             "--output-data", output_data]
+    if script_args:
+        args.extend(script_args)
     
     try:
         result = subprocess.run(args, cwd=str(ROOT), capture_output=True, text=True)

@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Node, Edge } from "@xyflow/react";
-import { jpost } from "../lib/api";
+import { jpost, jget } from "../lib/api";
 import { NodeData, NodeStatus } from "../components/Flow/types";
 import { validatePipeline } from "../components/Flow/validation";
 import { NodeConstraints } from "../components/Flow/node-spec";
@@ -16,18 +16,177 @@ export function usePipelineRunner(
   seed: number
 ) {
   const [progress, setProgress] = useState({ total: 0, completed: 0 });
+  const pollersRef = useRef<Record<string, number>>({});
+
+  const stopPoller = useCallback((id: string) => {
+    const p = pollersRef.current[id];
+    if (p) {
+      clearInterval(p);
+      delete pollersRef.current[id];
+    }
+  }, []);
+
+  const persistJob = useCallback(
+    (nodeId: string, jobId: string) => {
+      try {
+        localStorage.setItem(`job:${experimentName}:${nodeId}`, jobId);
+      } catch {}
+    },
+    [experimentName]
+  );
+
+  const clearJob = useCallback(
+    (nodeId: string) => {
+      try {
+        localStorage.removeItem(`job:${experimentName}:${nodeId}`);
+      } catch {}
+      setNodes((ns) =>
+        ns.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  config: { ...n.data.config, jobId: undefined },
+                },
+              }
+            : n
+        )
+      );
+    },
+    [experimentName, setNodes]
+  );
+
+  useEffect(() => {
+    return () => {
+      // Cleanup any outstanding pollers on unmount
+      Object.values(pollersRef.current).forEach((h) => clearInterval(h));
+      pollersRef.current = {};
+    };
+  }, []);
+
+  // Auto-resume polling if a job id exists on the node or in localStorage
+  useEffect(() => {
+    nodes.forEach((n) => {
+      const cfg = (n.data && n.data.config) || ({} as any);
+      let jobId: string | undefined = cfg.jobId;
+      if (!jobId) {
+        try {
+          jobId =
+            localStorage.getItem(`job:${experimentName}:${n.id}`) || undefined;
+        } catch {}
+      }
+      if (!jobId) return;
+      if (pollersRef.current[n.id]) return; // already polling
+
+      const nodeId = n.id;
+      const kind = n.data.kind;
+      const outTargets = `pipeline_runs/${experimentName}/01_adaptive_targets_${nodeId}.parquet`;
+      const outDiscovery = `pipeline_runs/${experimentName}/01_target_discovery_${nodeId}.json`;
+      const outRelationships = `pipeline_runs/${experimentName}/02_relationships_${nodeId}.json`;
+
+      const handleSuccess = () => {
+        if (kind === "target-discovery") {
+          setNodes((ns) =>
+            ns.map((x) =>
+              x.id === nodeId
+                ? {
+                    ...x,
+                    data: {
+                      ...x.data,
+                      config: {
+                        ...x.data.config,
+                        outputPath: outTargets,
+                        discoveryPath: outDiscovery,
+                        jobId: undefined,
+                      },
+                    },
+                  }
+                : x
+            )
+          );
+        } else if (kind === "pathfinding") {
+          setNodes((ns) =>
+            ns.map((x) =>
+              x.id === nodeId
+                ? {
+                    ...x,
+                    data: {
+                      ...x.data,
+                      config: {
+                        ...x.data.config,
+                        relationshipsPath: outRelationships,
+                        jobId: undefined,
+                      },
+                    },
+                  }
+                : x
+            )
+          );
+          setEdges((es) =>
+            es.map((e) => {
+              if (e.source !== nodeId) return e;
+              const outName = outRelationships.split("/").pop()!;
+              const color = (e.style && (e.style as any).stroke) || "#ef4444";
+              return {
+                ...e,
+                label: outName,
+                labelStyle: { fill: color, fontSize: 10 },
+              } as any;
+            })
+          );
+        }
+        clearJob(nodeId);
+      };
+
+      pollersRef.current[nodeId] = window.setInterval(async () => {
+        try {
+          const job = await jget<any>(`/jobs/${encodeURIComponent(jobId!)}`);
+          const logs = await jget<any>(
+            `/jobs/${encodeURIComponent(jobId!)}/logs`
+          ).catch(() => ({ content: "" }));
+          setNodes((ns) =>
+            ns.map((x) =>
+              x.id === nodeId
+                ? {
+                    ...x,
+                    data: {
+                      ...x.data,
+                      config: { ...x.data.config, logs: logs.content },
+                    },
+                  }
+                : x
+            )
+          );
+          if (job && (job.status === "SUCCESS" || job.status === "ERROR")) {
+            stopPoller(nodeId);
+            if (job.status === "SUCCESS") {
+              handleSuccess();
+            }
+          }
+        } catch (e: any) {
+          // Stop polling on 404s (job lost) to avoid duplicate retries
+          const msg = e && typeof e.message === "string" ? e.message : "";
+          if (msg.includes("404")) {
+            stopPoller(nodeId);
+            clearJob(nodeId);
+          }
+        }
+      }, 4000);
+    });
+  }, [nodes, experimentName, stopPoller, setNodes, setEdges, clearJob]);
 
   const propagateArtifacts = useCallback(
     (src: Node<NodeData>) => {
-      setNodes((ns: Node<NodeData>[]) => {
+      setNodes((ns) => {
         let updated = ns;
-        const downIds = (kinds?: NodeData["kind"][]) =>
-          edges.filter((e) => e.source === src.id).map((e) => e.target);
+        const downstreamIds = edges
+          .filter((e) => e.source === src.id)
+          .map((e) => e.target);
 
         if (src.data.kind === "data-source") {
-          const downstream = downIds();
           updated = ns.map((n) => {
-            if (downstream.includes(n.id)) {
+            if (downstreamIds.includes(n.id)) {
               const cfg = {
                 ...n.data.config,
                 inputData: src.data.config?.inputData,
@@ -40,10 +199,9 @@ export function usePipelineRunner(
             return n;
           });
         } else if (src.data.kind === "feature-selection") {
-          const downstream = downIds();
           updated = ns.map((n) => {
             if (
-              downstream.includes(n.id) &&
+              downstreamIds.includes(n.id) &&
               n.data.kind === "target-discovery"
             ) {
               const cfg = {
@@ -59,11 +217,14 @@ export function usePipelineRunner(
             return n;
           });
         } else if (src.data.kind === "target-discovery") {
-          const downstream = downIds();
           updated = ns.map((n) => {
-            if (downstream.includes(n.id) && n.data.kind === "pathfinding") {
-              const parquetPath = src.data.config?.outputPath as string | undefined;
-              const discoveryPath = src.data.config?.discoveryPath as string | undefined;
+            if (downstreamIds.includes(n.id) && n.data.kind === "pathfinding") {
+              const parquetPath = src.data.config?.outputPath as
+                | string
+                | undefined;
+              const discoveryPath = src.data.config?.discoveryPath as
+                | string
+                | undefined;
               const cfg = {
                 ...n.data.config,
                 inheritTargetsFrom: src.id,
@@ -78,10 +239,9 @@ export function usePipelineRunner(
             return n;
           });
         } else if (src.data.kind === "pathfinding") {
-          const downstream = downIds();
           updated = ns.map((n) => {
             if (
-              downstream.includes(n.id) &&
+              downstreamIds.includes(n.id) &&
               n.data.kind === "feature-engineering"
             ) {
               const producedRelPath = src.data.config?.relationshipsPath as
@@ -105,13 +265,11 @@ export function usePipelineRunner(
           src.data.kind === "transform" ||
           src.data.kind === "feature-engineering"
         ) {
-          const downstream = downIds();
           updated = ns.map((n) => {
-            if (downstream.includes(n.id)) {
+            if (downstreamIds.includes(n.id)) {
               const cfg = {
                 ...(n.data.config || {}),
                 inputData: src.data.config.outputPath,
-                // if this node expects features.json (target-discovery), pass along derived features when present
                 ...(n.data.kind === "target-discovery" &&
                 src.data.config.derivedFeatures
                   ? { featuresJson: src.data.config.derivedFeatures }
@@ -128,7 +286,7 @@ export function usePipelineRunner(
         return updated;
       });
     },
-    [edges, setNodes, experimentName]
+    [edges, setNodes]
   );
 
   const runNode = useCallback(
@@ -194,27 +352,89 @@ export function usePipelineRunner(
             max_eras: eras,
             row_limit: rows,
             target_limit: targetsCap,
+            td_eval_mode: cfg.td_eval_mode,
+            td_top_full_models: cfg.td_top_full_models,
+            td_ridge_lambda: cfg.td_ridge_lambda,
+            td_sample_per_era: cfg.td_sample_per_era,
+            td_max_combinations: cfg.td_max_combinations,
+            td_feature_fraction: cfg.td_feature_fraction,
+            td_num_boost_round: cfg.td_num_boost_round,
+            td_max_era_cache: cfg.td_max_era_cache,
+            td_clear_cache_every: cfg.td_clear_cache_every,
+            td_pre_cache_dir: cfg.td_pre_cache_dir,
+            td_persist_pre_cache: cfg.td_persist_pre_cache,
           };
-          const result = await jpost("/steps/target-discovery", payload);
-
+          // Start as background job and wait for it to finish before proceeding
+          const start = await jpost(
+            "/steps/target-discovery/background",
+            payload
+          );
+          const jobId: string = start.job_id;
+          // Store jobId for potential resume
           setNodes((ns) =>
             ns.map((n) =>
               n.id === id
                 ? {
                     ...n,
-                    data: {
-                      ...n.data,
-                      config: {
-                        ...n.data.config,
-                        outputPath: result.output_file,
-                        discoveryPath: result.discovery_file,
-                        logs: result.stdout,
-                      },
-                    },
+                    data: { ...n.data, config: { ...n.data.config, jobId } },
                   }
                 : n
             )
           );
+          persistJob(id, jobId);
+          // Wait synchronously (with small sleeps) for job completion
+          // while streaming logs into the node config
+          // Do not register a periodic poller here; that's for auto-resume
+          // on page refresh.
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const job = await jget<any>(`/jobs/${encodeURIComponent(jobId)}`);
+            const logs = await jget<any>(
+              `/jobs/${encodeURIComponent(jobId!)}/logs`
+            ).catch(() => ({ content: "" }));
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === id
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        config: { ...n.data.config, logs: logs.content },
+                      },
+                    }
+                  : n
+              )
+            );
+            if (job && (job.status === "SUCCESS" || job.status === "ERROR")) {
+              if (job.status === "SUCCESS") {
+                setNodes((ns) =>
+                  ns.map((n) =>
+                    n.id === id
+                      ? {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            config: {
+                              ...n.data.config,
+                              outputPath: output_file,
+                              discoveryPath: discovery_file,
+                              jobId: undefined,
+                            },
+                          },
+                        }
+                      : n
+                  )
+                );
+                clearJob(id);
+                break;
+              } else {
+                throw new Error(
+                  `Target discovery failed (exit=${job.return_code})`
+                );
+              }
+            }
+            await new Promise((res) => setTimeout(res, 2000));
+          }
         } else if (data.kind === "pathfinding") {
           // Resolve required inputs: parquet and targets json
           let parquetPath: string | undefined = cfg.inputData;
@@ -243,15 +463,30 @@ export function usePipelineRunner(
               "Pathfinding requires both parquet and targets.json inputs"
             );
           }
-
           const relationships_file = `pipeline_runs/${experimentName}/02_relationships_${id}.json`;
-          // Map config
+          // Map config to new script params
           const yolo_mode = Boolean(cfg.yolo);
           const feature_limit =
             cfg.featureLimit && cfg.featureLimit > 0
               ? cfg.featureLimit
               : undefined;
           const debug = Boolean(cfg.debug);
+          const pf_feature_cap =
+            cfg.smokeFeat && cfg.smokeFeat > 0 ? cfg.smokeFeat : undefined;
+          const last_n_eras =
+            cfg.lastNEras && cfg.lastNEras > 0 ? cfg.lastNEras : undefined;
+          const cache_dir = cfg.cacheDir || "cache/pathfinding_cache";
+          const run_sanity_check = cfg.sanityCheck ?? false;
+          const n_paths = cfg.nPaths && cfg.nPaths > 0 ? cfg.nPaths : undefined;
+          const max_path_length =
+            cfg.maxPathLen && cfg.maxPathLen > 0 ? cfg.maxPathLen : undefined;
+          const min_strength =
+            cfg.minStrength && cfg.minStrength > 0
+              ? cfg.minStrength
+              : undefined;
+          const top_k = cfg.topK && cfg.topK > 0 ? cfg.topK : undefined;
+          const batch_size =
+            cfg.batchSize && cfg.batchSize > 0 ? cfg.batchSize : undefined;
           const payload = {
             input_file: parquetPath,
             target_col: "adaptive_target",
@@ -259,42 +494,89 @@ export function usePipelineRunner(
             yolo_mode,
             feature_limit,
             debug,
+            cache_dir,
+            run_sanity_check,
+            pf_feature_cap,
+            last_n_eras,
+            n_paths,
+            max_path_length,
+            min_strength,
+            top_k,
+            batch_size,
           } as any;
-          const result = await jpost("/steps/pathfinding", payload);
-
+          const start = await jpost("/steps/pathfinding/background", payload);
+          const jobId: string = start.job_id;
           setNodes((ns) =>
             ns.map((n) =>
               n.id === id
                 ? {
                     ...n,
-                    data: {
-                      ...n.data,
-                      config: {
-                        ...n.data.config,
-                        relationshipsPath:
-                          result.relationships_file || relationships_file,
-                        logs: result.stdout,
-                      },
-                    },
+                    data: { ...n.data, config: { ...n.data.config, jobId } },
                   }
                 : n
             )
           );
-          // Update outgoing edge labels
-          setEdges((es) =>
-            es.map((e) => {
-              if (e.source !== id) return e;
-              const outName = (result.relationships_file || relationships_file)
-                .split("/")
-                .pop()!;
-              const color = (e.style && (e.style as any).stroke) || "#ef4444";
-              return {
-                ...e,
-                label: outName,
-                labelStyle: { fill: color, fontSize: 10 },
-              } as any;
-            })
-          );
+          persistJob(id, jobId);
+          // Wait synchronously for job completion while updating logs
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const job = await jget<any>(`/jobs/${encodeURIComponent(jobId)}`);
+            const logs = await jget<any>(
+              `/jobs/${encodeURIComponent(jobId)}/logs`
+            ).catch(() => ({ content: "" }));
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === id
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        config: { ...n.data.config, logs: logs.content },
+                      },
+                    }
+                  : n
+              )
+            );
+            if (job && (job.status === "SUCCESS" || job.status === "ERROR")) {
+              if (job.status === "SUCCESS") {
+                setNodes((ns) =>
+                  ns.map((n) =>
+                    n.id === id
+                      ? {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            config: {
+                              ...n.data.config,
+                              relationshipsPath: relationships_file,
+                              jobId: undefined,
+                            },
+                          },
+                        }
+                      : n
+                  )
+                );
+                setEdges((es) =>
+                  es.map((e) => {
+                    if (e.source !== id) return e;
+                    const outName = relationships_file.split("/").pop()!;
+                    const color =
+                      (e.style && (e.style as any).stroke) || "#ef4444";
+                    return {
+                      ...e,
+                      label: outName,
+                      labelStyle: { fill: color, fontSize: 10 },
+                    } as any;
+                  })
+                );
+                clearJob(id);
+                break;
+              } else {
+                throw new Error(`Pathfinding failed (exit=${job.return_code})`);
+              }
+            }
+            await new Promise((res) => setTimeout(res, 2000));
+          }
         } else if (data.kind === "transform") {
           const inputEdge = edges.find((e) => e.target === id);
           if (!inputEdge) {
@@ -309,11 +591,54 @@ export function usePipelineRunner(
             inputNode.data.config.outputPath ||
             inputNode.data.config.inputData ||
             "v5.0/train.parquet";
+          // Allow optional script args from config (either array or a raw string to parse)
+          const parseArgs = (s: string): string[] => {
+            const out: string[] = [];
+            let cur = "";
+            let quote: '"' | "'" | null = null;
+            for (let i = 0; i < s.length; i++) {
+              const ch = s[i];
+              if (quote) {
+                if (ch === quote) {
+                  quote = null;
+                } else if (
+                  ch === "\\" &&
+                  i + 1 < s.length &&
+                  s[i + 1] === quote
+                ) {
+                  cur += quote;
+                  i++;
+                } else {
+                  cur += ch;
+                }
+              } else {
+                if (ch === '"' || ch === "'") {
+                  quote = ch as any;
+                } else if (ch === " " || ch === "\n" || ch === "\t") {
+                  if (cur) {
+                    out.push(cur);
+                    cur = "";
+                  }
+                } else {
+                  cur += ch;
+                }
+              }
+            }
+            if (cur) out.push(cur);
+            return out;
+          };
+          const argsArray: string[] = Array.isArray(cfg.scriptArgs)
+            ? (cfg.scriptArgs as string[])
+            : typeof (cfg as any).scriptArgsStr === "string" &&
+              (cfg as any).scriptArgsStr
+            ? parseArgs((cfg as any).scriptArgsStr as string)
+            : [];
 
           const payload = {
             input_data: inputDataPath,
             transform_script: cfg.script,
             output_data: `pipeline_runs/${experimentName}/transformed_data_${id}.parquet`,
+            script_args: argsArray,
           };
           const result = await jpost("/transforms/execute", payload);
           // Try to derive a features.json artifact from the transformed parquet
@@ -391,41 +716,57 @@ export function usePipelineRunner(
           await new Promise((res) => setTimeout(res, 300));
         }
 
-        setNodes((ns) =>
-          ns.map((n) =>
-            n.id === id
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: "complete" as NodeStatus,
-                    statusText:
-                      data.kind === "target-discovery"
-                        ? "✅ Targets discovered"
-                        : data.kind === "feature-selection"
-                        ? "✅ Features selected"
-                        : data.kind === "pathfinding"
-                        ? "✅ Relationships mapped"
-                        : data.kind === "feature-engineering"
-                        ? "✅ Features generated"
-                        : data.kind === "transform"
-                        ? "✅ Transform applied"
-                        : data.kind === "output"
-                        ? "✅ Output saved"
-                        : "✅ Done",
-                  },
-                }
-              : n
-          )
-        );
-
-        if (
-          data.kind === "target-discovery" ||
-          data.kind === "pathfinding" ||
-          data.kind === "feature-selection" ||
-          data.kind === "transform" ||
-          data.kind === "feature-engineering"
-        ) {
+        // For background jobs we set completion status on success above.
+        if (data.kind !== "target-discovery" && data.kind !== "pathfinding") {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === id
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "complete" as NodeStatus,
+                      statusText:
+                        data.kind === "feature-selection"
+                          ? "✅ Features selected"
+                          : data.kind === "feature-engineering"
+                          ? "✅ Features generated"
+                          : data.kind === "transform"
+                          ? "✅ Transform applied"
+                          : data.kind === "output"
+                          ? "✅ Output saved"
+                          : "✅ Done",
+                    },
+                  }
+                : n
+            )
+          );
+          if (
+            data.kind === "feature-selection" ||
+            data.kind === "transform" ||
+            data.kind === "feature-engineering"
+          ) {
+            propagateArtifacts(node);
+          }
+        } else {
+          // For background jobs, mark status complete now and propagate
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === id
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "complete" as NodeStatus,
+                      statusText:
+                        data.kind === "target-discovery"
+                          ? "✅ Targets discovered"
+                          : "✅ Relationships mapped",
+                    },
+                  }
+                : n
+            )
+          );
           propagateArtifacts(node);
         }
       } catch (e: any) {

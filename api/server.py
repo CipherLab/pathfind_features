@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Optional, Any, Dict, List
 from pathlib import Path
 import os
+import sys
 from math import ceil
 import json
 try:
@@ -13,6 +14,7 @@ except Exception:  # pragma: no cover
     pq = None
 
 from .runner import RUNS
+from .step_jobs import STEP_JOBS, ROOT as ROOT_DIR
 from . import ops
 from .models import RunRequest
 
@@ -70,6 +72,7 @@ class TransformExecuteReq(BaseModel):
     input_data: str
     transform_script: str
     output_data: str
+    script_args: Optional[list[str]] = None
 
 class MoveFileReq(BaseModel):
     source: str
@@ -88,6 +91,19 @@ class TargetDiscoveryReq(BaseModel):
     max_eras: Optional[int] = None
     row_limit: Optional[int] = None
     target_limit: Optional[int] = None
+    cache_dir: Optional[str] = None
+    force_recache: bool = False
+    td_eval_mode: Optional[str] = None
+    td_top_full_models: Optional[int] = None
+    td_ridge_lambda: Optional[float] = None
+    td_sample_per_era: Optional[int] = None
+    td_max_combinations: Optional[int] = None
+    td_feature_fraction: Optional[float] = None
+    td_num_boost_round: Optional[int] = None
+    td_max_era_cache: Optional[int] = None
+    td_clear_cache_every: Optional[int] = None
+    td_pre_cache_dir: Optional[str] = None
+    td_persist_pre_cache: bool = False
 class PathfindingReq(BaseModel):
     input_file: str
     target_col: str = "adaptive_target"
@@ -97,6 +113,16 @@ class PathfindingReq(BaseModel):
     row_limit: Optional[int] = None
     debug: bool = False
     debug_every_rows: int = 10000
+    cache_dir: Optional[str] = None
+    run_sanity_check: bool = False
+    pf_feature_cap: Optional[int] = None
+    n_paths: Optional[int] = None
+    max_path_length: Optional[int] = None
+    min_strength: Optional[float] = None
+    top_k: Optional[int] = None
+    batch_size: Optional[int] = None
+    last_n_eras: Optional[int] = None
+    era_col: Optional[str] = None
 
 # (lane planning models removed)
 
@@ -118,6 +144,7 @@ async def execute_transform(body: TransformExecuteReq):
         body.input_data,
         body.transform_script,
         body.output_data,
+        body.script_args or [],
     )
     if result["code"] != 0:
         raise HTTPException(500, detail=f"transform script failed with exit {result['code']}\n{result['stderr']}")
@@ -131,14 +158,27 @@ async def execute_transform(body: TransformExecuteReq):
 @app.post("/steps/target-discovery")
 async def run_step_target_discovery(body: TargetDiscoveryReq):
     result = ops.run_step_target_discovery(
-        body.input_file,
-        body.features_json_file,
-        body.output_file,
-        body.discovery_file,
-        body.skip_walk_forward,
-        body.max_eras,
-        body.row_limit,
-        body.target_limit,
+        input_file=body.input_file,
+        features_json_file=body.features_json_file,
+        output_file=body.output_file,
+        discovery_file=body.discovery_file,
+        skip_walk_forward=body.skip_walk_forward,
+        max_eras=body.max_eras,
+        row_limit=body.row_limit,
+        target_limit=body.target_limit,
+        cache_dir=body.cache_dir,
+        force_recache=body.force_recache,
+        td_eval_mode=body.td_eval_mode,
+        td_top_full_models=body.td_top_full_models,
+        td_ridge_lambda=body.td_ridge_lambda,
+        td_sample_per_era=body.td_sample_per_era,
+        td_max_combinations=body.td_max_combinations,
+        td_feature_fraction=body.td_feature_fraction,
+        td_num_boost_round=body.td_num_boost_round,
+        td_max_era_cache=body.td_max_era_cache,
+        td_clear_cache_every=body.td_clear_cache_every,
+        td_pre_cache_dir=body.td_pre_cache_dir,
+        td_persist_pre_cache=body.td_persist_pre_cache,
     )
     if result["code"] != 0:
         raise HTTPException(500, detail=f"target discovery script failed with exit {result['code']}\n{result['stderr']}")
@@ -150,6 +190,63 @@ async def run_step_target_discovery(body: TargetDiscoveryReq):
         "stderr": result["stderr"],
     }
 
+
+class BgTargetDiscoveryReq(TargetDiscoveryReq):
+    logs_path: Optional[str] = None
+
+
+@app.post("/steps/target-discovery/background", status_code=202)
+async def run_step_target_discovery_background(body: BgTargetDiscoveryReq):
+    py = str((ROOT_DIR/ ".venv/bin/python") if (ROOT_DIR/".venv/bin/python").exists() else sys.executable)
+    args = [
+        py,
+        str(ROOT_DIR / "bootstrap_pipeline" / "steps" / "step_01_target_discovery.py"),
+        "--input-file", body.input_file,
+        "--features-json-file", body.features_json_file,
+        "--output-file", body.output_file,
+        "--discovery-file", body.discovery_file,
+    ]
+    if body.skip_walk_forward:
+        args.append("--skip-walk-forward")
+    if body.max_eras is not None:
+        args += ["--max-eras", str(body.max_eras)]
+    if body.row_limit is not None:
+        args += ["--row-limit", str(body.row_limit)]
+    if body.target_limit is not None:
+        args += ["--target-limit", str(body.target_limit)]
+    if body.cache_dir:
+        args += ["--cache-dir", body.cache_dir]
+    if body.force_recache:
+        args.append("--force-recache")
+    if body.td_eval_mode:
+        args += ["--td-eval-mode", body.td_eval_mode]
+    if body.td_top_full_models is not None:
+        args += ["--td-top-full-models", str(body.td_top_full_models)]
+    if body.td_ridge_lambda is not None:
+        args += ["--td-ridge-lambda", str(body.td_ridge_lambda)]
+    if body.td_sample_per_era is not None:
+        args += ["--td-sample-per-era", str(body.td_sample_per_era)]
+    if body.td_max_combinations is not None:
+        args += ["--td-max-combinations", str(body.td_max_combinations)]
+    if body.td_feature_fraction is not None:
+        args += ["--td-feature-fraction", str(body.td_feature_fraction)]
+    if body.td_num_boost_round is not None:
+        args += ["--td-num-boost-round", str(body.td_num_boost_round)]
+    if body.td_max_era_cache is not None:
+        args += ["--td-max-era-cache", str(body.td_max_era_cache)]
+    if body.td_clear_cache_every is not None:
+        args += ["--td-clear-cache-every", str(body.td_clear_cache_every)]
+    if body.td_pre_cache_dir:
+        args += ["--td-pre-cache-dir", body.td_pre_cache_dir]
+    if body.td_persist_pre_cache:
+        args.append("--td-persist-pre-cache")
+
+    out = Path(body.output_file)
+    logs_path = Path(body.logs_path) if body.logs_path else (out.parent / "logs.log")
+    env = {"PYTHONPATH": str(ROOT_DIR), "PIPELINE_LOG_TO_STDOUT_ONLY": "1"}
+    job = STEP_JOBS.start(args, logs_path=logs_path, outputs={"output_file": str(out), "discovery_file": str(Path(body.discovery_file))}, cwd=str(ROOT_DIR), env=env)
+    return {"job_id": job.id, "status": job.status, "logs_path": str(logs_path)}
+
 @app.post("/steps/pathfinding")
 async def run_step_pathfinding(body: PathfindingReq):
     result = ops.run_step_pathfinding(
@@ -160,7 +257,17 @@ async def run_step_pathfinding(body: PathfindingReq):
         body.feature_limit,
         body.row_limit,
         body.debug,
-        body.debug_every_rows,
+    body.debug_every_rows,
+    body.cache_dir,
+    body.run_sanity_check,
+    body.pf_feature_cap,
+    body.n_paths,
+    body.max_path_length,
+    body.min_strength,
+    body.top_k,
+    body.batch_size,
+    body.last_n_eras,
+    body.era_col,
     )
     if result["code"] != 0:
         raise HTTPException(500, detail=f"pathfinding script failed with exit {result['code']}\n{result['stderr']}")
@@ -170,6 +277,86 @@ async def run_step_pathfinding(body: PathfindingReq):
         "stdout": result["stdout"],
         "stderr": result["stderr"],
     }
+
+
+# Background step execution for long-running jobs (non-blocking)
+class BgPathfindingReq(PathfindingReq):
+    logs_path: Optional[str] = None  # defaults to alongside output file
+
+
+@app.post("/steps/pathfinding/background", status_code=202)
+async def run_step_pathfinding_background(body: BgPathfindingReq):
+    """Start pathfinding as a background job and return a job_id for polling.
+
+    The job writes detailed logs to logs_path and the step-specific logs to the same file.
+    """
+    # Build process args identical to ops.run_step_pathfinding, but non-blocking
+    py = str((ROOT_DIR/ ".venv/bin/python") if (ROOT_DIR/".venv/bin/python").exists() else sys.executable)
+    args = [
+        py,
+        str(ROOT_DIR / "bootstrap_pipeline" / "steps" / "step_02_pathfinding.py"),
+        "--input-file", body.input_file,
+        "--target-col", body.target_col,
+        "--output-relationships-file", body.output_relationships_file,
+    ]
+    if body.yolo_mode:
+        args.append("--yolo-mode")
+    if body.feature_limit is not None:
+        args += ["--feature-limit", str(body.feature_limit)]
+    if body.row_limit is not None:
+        args += ["--row-limit", str(body.row_limit)]
+    if body.debug:
+        args.append("--debug")
+    if body.debug_every_rows is not None:
+        args += ["--debug-every-rows", str(body.debug_every_rows)]
+    if body.cache_dir:
+        args += ["--cache-dir", body.cache_dir]
+    if body.run_sanity_check:
+        args.append("--run-sanity-check")
+    if body.pf_feature_cap is not None:
+        args += ["--pf-feature-cap", str(body.pf_feature_cap)]
+    if body.n_paths is not None:
+        args += ["--n-paths", str(body.n_paths)]
+    if body.max_path_length is not None:
+        args += ["--max-path-length", str(body.max_path_length)]
+    if body.min_strength is not None:
+        args += ["--min-strength", str(body.min_strength)]
+    if body.top_k is not None:
+        args += ["--top-k", str(body.top_k)]
+    if body.batch_size is not None:
+        args += ["--batch-size", str(body.batch_size)]
+    if body.last_n_eras is not None:
+        args += ["--last-n-eras", str(body.last_n_eras)]
+    if body.era_col:
+        args += ["--era-col", body.era_col]
+
+    # Resolve logs path
+    out = Path(body.output_relationships_file)
+    logs_path = Path(body.logs_path) if body.logs_path else (out.parent / "logs.log")
+    env = {"PYTHONPATH": str(ROOT_DIR), "PIPELINE_LOG_TO_STDOUT_ONLY": "1"}
+    job = STEP_JOBS.start(args, logs_path=logs_path, outputs={"relationships_file": str(out)}, cwd=str(ROOT_DIR), env=env)
+    return {"job_id": job.id, "status": job.status, "logs_path": str(logs_path)}
+
+
+@app.get("/jobs/{job_id}")
+async def get_job(job_id: str):
+    job = STEP_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, detail="job not found")
+    return job
+
+
+@app.get("/jobs/{job_id}/logs")
+async def get_job_logs(job_id: str, tail: int = 4000):
+    job = STEP_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, detail="job not found")
+    return STEP_JOBS.tail_logs(job_id, tail)
+
+
+@app.get("/jobs")
+async def list_jobs():
+    return STEP_JOBS.list()
 
 @app.post("/files/move")
 async def move_file(body: MoveFileReq):
@@ -535,6 +722,36 @@ def _analyze_parquet(path: Path):
         # Leave partial info
         pass
     return info
+
+
+class DatasetStatsReq(BaseModel):
+    path: str
+    era_col: Optional[str] = "era"
+
+
+@app.post("/datasets/stats")
+async def dataset_stats(req: DatasetStatsReq):
+    root = Path(__file__).resolve().parents[1]
+    pp = Path(req.path)
+    path = pp if pp.is_absolute() else (root / req.path)
+    if not path.exists():
+        raise HTTPException(404, detail=f"not found: {req.path}")
+    if pq is None:
+        raise HTTPException(500, detail="pyarrow not available on server")
+    out: Dict[str, Any] = {"rows": None, "distinct_eras": None, "era_col": req.era_col}
+    try:
+        pf = pq.ParquetFile(str(path))
+        out["rows"] = pf.metadata.num_rows if pf.metadata else None
+        # Compute distinct era values by streaming just the era column
+        era_name = req.era_col or "era"
+        eras: set[Any] = set()
+        for batch in pf.iter_batches(batch_size=200_000, columns=[era_name]):
+            col = batch.column(0).to_pylist()
+            eras.update(col)
+        out["distinct_eras"] = len(eras)
+    except Exception as ex:
+        raise HTTPException(500, detail=f"failed to read parquet: {ex}")
+    return out
 
 
 @app.post("/preflight")

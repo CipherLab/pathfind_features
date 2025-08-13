@@ -1,5 +1,6 @@
 from __future__ import annotations
 import subprocess
+import os
 import sys
 import threading
 import time
@@ -113,7 +114,13 @@ class RunManager:
         with open(record.logs_path, "a", buffering=1) as logf:
             logf.write("Running: " + " ".join(args) + "\n")
             try:
-                proc = subprocess.run(args, cwd=str(ROOT), stdout=logf, stderr=subprocess.STDOUT)
+                env = {
+                    **os.environ,
+                    "PYTHONPATH": str(ROOT) + (os.pathsep + os.environ.get("PYTHONPATH", "") if os.environ.get("PYTHONPATH") else ""),
+                    # Tell step scripts to only log to stdout; we'll write stdout to file here
+                    "PIPELINE_LOG_TO_STDOUT_ONLY": "1",
+                }
+                proc = subprocess.run(args, cwd=str(ROOT), stdout=logf, stderr=subprocess.STDOUT, env=env)
                 code = proc.returncode
             except Exception as e:
                 code = -1

@@ -132,6 +132,17 @@ export function usePipelineState() {
           ? "Validate"
           : "Output";
 
+      const defaultConfig: Record<string, any> =
+        kind === "pathfinding"
+          ? {
+              // Sensible defaults
+              lastNEras: 200,
+              smokeFeat: 8,
+              cacheDir: "cache/pathfinding_cache",
+              sanityCheck: true,
+            }
+          : {};
+
       const n: Node<NodeData> = {
         id,
         type: "appNode",
@@ -139,7 +150,13 @@ export function usePipelineState() {
           x: 140 + nodes.length * 50,
           y: 100 + nodes.length * 20,
         },
-        data: { kind, title, status: "idle", statusText: "", config: {} },
+        data: {
+          kind,
+          title,
+          status: "idle",
+          statusText: "",
+          config: defaultConfig,
+        },
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
       };

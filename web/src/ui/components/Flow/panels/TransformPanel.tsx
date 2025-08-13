@@ -5,6 +5,9 @@ interface TransformConfig {
   script?: string;
   outputPath?: string;
   logs?: string;
+  // Optional: raw arguments string and parsed array for the transform script
+  scriptArgsStr?: string;
+  scriptArgs?: string[];
 }
 
 type Props = {
@@ -27,6 +30,35 @@ export default function TransformPanel({ cfg, updateData }: Props) {
       .catch(console.error);
   }, []);
 
+  // Minimal shell-like argv splitter (supports quotes)
+  const parseArgs = (s: string): string[] => {
+    const out: string[] = [];
+    let cur = '';
+    let quote: '"' | "'" | null = null;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (quote) {
+        if (ch === quote) {
+          quote = null;
+        } else if (ch === '\\' && i + 1 < s.length && s[i + 1] === quote) {
+          cur += quote; i++;
+        } else {
+          cur += ch;
+        }
+      } else {
+        if (ch === '"' || ch === "'") {
+          quote = ch as any;
+        } else if (ch === ' ' || ch === '\n' || ch === '\t') {
+          if (cur) { out.push(cur); cur = ''; }
+        } else {
+          cur += ch;
+        }
+      }
+    }
+    if (cur) out.push(cur);
+    return out;
+  };
+
 
   return (
     <div className="flex flex-col gap-4">
@@ -45,6 +77,19 @@ export default function TransformPanel({ cfg, updateData }: Props) {
           onChange={e => updateData({ script: e.target.value })}
           placeholder="def transform(df):\n  # Your pandas transform logic here\n  return df"
         />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="text-sm text-slate-300">Arguments (optional)</span>
+        <input
+          className="input text-sm font-mono"
+          value={cfg.scriptArgsStr || ''}
+          onChange={e => {
+            const raw = e.target.value;
+            updateData({ scriptArgsStr: raw, scriptArgs: parseArgs(raw) });
+          }}
+          placeholder="e.g. --last-n 200 --era-col era"
+        />
+        <span className="text-xs text-slate-400">Passed to your script as sys.argv tokens. Quotes are supported.</span>
       </label>
       <div className="grid grid-cols-2 gap-2">
         {transforms.map((transform) => (

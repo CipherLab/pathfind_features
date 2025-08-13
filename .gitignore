@@ -137,3 +137,5 @@ package-lock.json
 !web/src/ui/lib/api.ts
 
 package-lock.json
+
+cache/

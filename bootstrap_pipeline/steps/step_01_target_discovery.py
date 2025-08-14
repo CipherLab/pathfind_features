@@ -12,11 +12,12 @@ import sys
 import hashlib
 import shutil
 from pathlib import Path
+from collections import defaultdict
 from bootstrap_pipeline.bootstrap.target_discovery import WalkForwardTargetDiscovery
 from bootstrap_pipeline.utils.utils import reduce_mem_usage
 
 # Bump this when changing discovery/caching behavior to invalidate old cache entries
-ALGO_VERSION = "td-v1.1"
+ALGO_VERSION = "td-v1.2"
 
 def setup_logging(log_file):
     """Initializes logging to both file and console for a specific run."""
@@ -60,9 +61,12 @@ def run(
     skip_walk_forward: bool = False,
     max_eras: int | None = None,
     row_limit: int | None = None,
+    row_limit_per_era: int | None = None,
     target_limit: int | None = None,
     cache_dir: str | None = None,
     force_recache: bool = False,
+    no_cache: bool = True,
+    td_warmup_eras: int | None = None,
     **kwargs,
 ):
     """
@@ -120,6 +124,9 @@ def run(
         except Exception:
             features_hash = f"sz{os.path.getsize(features_json_file)}_mt{int(os.path.getmtime(features_json_file))}"
 
+    # Resolve warmup configuration (allows overriding default 20 for short runs)
+    configured_warmup = int(td_warmup_eras) if td_warmup_eras is not None else 20
+
     cache_payload = {
         "algo": ALGO_VERSION,
         "input_hash": input_hash,
@@ -127,7 +134,9 @@ def run(
         "skip_walk_forward": bool(skip_walk_forward),
         "max_eras": int(max_eras) if max_eras is not None else None,
         "row_limit": int(row_limit) if row_limit is not None else None,
+    "row_limit_per_era": int(row_limit_per_era) if row_limit_per_era is not None else None,
         "target_limit": int(target_limit) if target_limit is not None else None,
+        "warmup_eras": configured_warmup,
         "targets": target_columns[: (target_limit or len(target_columns))],
     }
     cache_sig = hashlib.md5(json.dumps(cache_payload, sort_keys=True).encode("utf-8")).hexdigest()
@@ -138,7 +147,11 @@ def run(
     cache_parquet = use_cache_dir / f"td_{cache_sig}.parquet"
     cache_weights = use_cache_dir / f"td_{cache_sig}.weights.json"
 
-    if (not force_recache) and (not skip_walk_forward) and cache_parquet.exists() and cache_weights.exists():
+    if force_recache and no_cache:
+        logging.warning("Both force_recache and no_cache were set; proceeding with no-cache behavior (no reuse, no save).")
+
+    use_cache = (not no_cache)
+    if (not force_recache) and use_cache and (not skip_walk_forward) and cache_parquet.exists() and cache_weights.exists():
         logging.info(
             "CACHE HIT: Reusing target discovery outputs for signature %s\n  -> %s\n  -> %s",
             cache_sig,
@@ -157,8 +170,9 @@ def run(
     if max_eras is not None:
         unique_eras = unique_eras[:max_eras]
 
-    # Row-limit aware restriction: only discover weights for eras actually needed to write out
-    if row_limit is not None:
+    # Row-limit aware restriction: only discover weights for eras actually needed to write out.
+    # If a per-era limit is provided, DO NOT prune eras using the first N rows of the file.
+    if row_limit_per_era is None and row_limit is not None:
         needed = set()
         seen = 0
         for batch in pf.iter_batches(batch_size=50000, columns=['era']):
@@ -178,9 +192,16 @@ def run(
         )
 
     total_rows = pf.metadata.num_rows
-    logging.info(
-        f"Processing {len(unique_eras)} eras and up to {row_limit or total_rows} rows",
-    )
+    if row_limit_per_era is not None:
+        logging.info(
+            "Processing %s eras and up to %s rows per era",
+            len(unique_eras),
+            row_limit_per_era,
+        )
+    else:
+        logging.info(
+            f"Processing {len(unique_eras)} eras and up to {row_limit or total_rows} rows",
+        )
 
     # Initialize discovery with optional tuning kwargs forwarded from CLI / env
     td_kwargs = {}
@@ -217,7 +238,6 @@ def run(
         logging.info("Starting walk-forward discovery loop...")
         start = time.time()
         # Warmup: skip discovery for the first N eras. Ensure we don't skip ALL eras on short runs.
-        configured_warmup = 20
         warmup = min(configured_warmup, max(0, len(unique_eras) - 1))
         if warmup < configured_warmup:
             logging.info(
@@ -276,13 +296,15 @@ def run(
 
     # Create adaptive targets and save
     writer = None
-    processed_rows = 0
+    processed_rows = 0  # global processed rows (used when row_limit is set)
+    era_counts: dict = defaultdict(int) if row_limit_per_era is not None else {}
     stats_count = 0
     stats_mean = 0.0
     stats_M2 = 0.0
     stats_min = float('inf')
     stats_max = float('-inf')
     target_total_rows = row_limit or total_rows
+    per_era_limit = row_limit_per_era
     for batch in pf.iter_batches(batch_size=50000, columns=all_columns):
         batch_df = batch.to_pandas()
         batch_df = reduce_mem_usage(batch_df, _verbose=False)
@@ -292,6 +314,35 @@ def run(
             batch_df = batch_df[batch_df['era'].isin(set(unique_eras))]
             if batch_df.empty:
                 continue
+
+        # If per-era limit is set, cap rows per era within this batch
+        if per_era_limit is not None:
+            if not era_counts:
+                era_counts = defaultdict(int)
+            # compute remaining per era and filter accordingly
+            if not batch_df.empty:
+                groups = []
+                for era, g in batch_df.groupby('era', sort=False):
+                    if era not in unique_eras:
+                        continue
+                    remaining = per_era_limit - era_counts[era]
+                    if remaining > 0:
+                        groups.append(g.iloc[:remaining])
+                if groups:
+                    batch_df = pd.concat(groups, ignore_index=True)
+                else:
+                    batch_df = batch_df.iloc[0:0]
+            if batch_df.empty:
+                # Check if all eras reached their per-era limits; if so, we can stop early
+                if all((era_counts.get(e, 0) >= per_era_limit) for e in unique_eras):
+                    logging.info(
+                        "Processed per-era limits for all %s eras (each up to %s rows)",
+                        len(unique_eras),
+                        per_era_limit,
+                    )
+                    break
+                else:
+                    continue
 
         if row_limit is not None and processed_rows >= row_limit:
             break
@@ -331,6 +382,11 @@ def run(
             writer = pq.ParquetWriter(output_file, table.schema)
         writer.write_table(table)
         processed_rows += len(batch_df)
+        # update per-era counters
+        if per_era_limit is not None and not batch_df.empty:
+            counts = batch_df['era'].value_counts()
+            for era, cnt in counts.items():
+                era_counts[era] += int(cnt)
 
         arr = np.asarray(adaptive_targets, dtype=float)
         arr_finite = arr[np.isfinite(arr)]
@@ -347,8 +403,17 @@ def run(
             stats_min = min(stats_min, float(arr_finite.min()))
             stats_max = max(stats_max, float(arr_finite.max()))
 
-        if processed_rows >= target_total_rows:
+        # Break conditions
+        if row_limit is not None and processed_rows >= target_total_rows:
             logging.info(f"Processed {processed_rows}/{target_total_rows} rows (100.0%)")
+            break
+        if per_era_limit is not None and all((era_counts.get(e, 0) >= per_era_limit) for e in unique_eras):
+            total_written = sum(min(era_counts.get(e, 0), per_era_limit) for e in unique_eras)
+            logging.info(
+                "Processed per-era limits for all eras: %s total rows across %s eras",
+                total_written,
+                len(unique_eras),
+            )
             break
         if processed_rows % 500000 == 0:
             logging.info(
@@ -362,17 +427,20 @@ def run(
     with open(discovery_file, 'w') as f:
         json.dump({str(k): v.tolist() for k, v in target_discovery.era_weights.items()}, f, indent=2)
 
-    # Save outputs to cache for reuse (best-effort)
-    try:
-        tmp_parquet = cache_parquet.with_suffix(".parquet.tmp")
-        tmp_weights = cache_weights.with_suffix(".json.tmp")
-        shutil.copyfile(output_file, tmp_parquet)
-        shutil.copyfile(discovery_file, tmp_weights)
-        tmp_parquet.replace(cache_parquet)
-        tmp_weights.replace(cache_weights)
-        logging.info("CACHE SAVE: Stored outputs for signature %s in %s", cache_sig, str(use_cache_dir))
-    except Exception:
-        logging.warning("Failed to save cache artifacts (non-fatal).", exc_info=True)
+    # Save outputs to cache for reuse (best-effort) unless caching is disabled
+    if use_cache and not force_recache:
+        try:
+            tmp_parquet = cache_parquet.with_suffix(".parquet.tmp")
+            tmp_weights = cache_weights.with_suffix(".json.tmp")
+            shutil.copyfile(output_file, tmp_parquet)
+            shutil.copyfile(discovery_file, tmp_weights)
+            tmp_parquet.replace(cache_parquet)
+            tmp_weights.replace(cache_weights)
+            logging.info("CACHE SAVE: Stored outputs for signature %s in %s", cache_sig, str(use_cache_dir))
+        except Exception:
+            logging.warning("Failed to save cache artifacts (non-fatal).", exc_info=True)
+    elif not use_cache:
+        logging.info("Cache disabled (--no-cache): skipping cache save.")
 
     if stats_count:
         variance = stats_M2 / stats_count
@@ -380,12 +448,48 @@ def run(
         logging.info(
             f"Adaptive target stats: mean={stats_mean:.6f}, std={std:.6f}, min={stats_min:.6f}, max={stats_max:.6f}, n={stats_count}"
         )
+    # Report average weights, including and excluding warmup eras, to avoid confusion from equal-weight warmup bleed
     try:
-        avg_weights = np.mean(np.stack(list(target_discovery.era_weights.values())), axis=0)
-        logging.info(
-            "Average target weights: %s",
-            {target_columns[i]: float(w) for i, w in enumerate(avg_weights)}
-        )
+        # All eras (includes warmup equal-weights)
+        all_w = [v for k, v in target_discovery.era_weights.items()]
+        if all_w:
+            avg_weights = np.mean(np.stack(all_w), axis=0)
+            logging.info(
+                "Average target weights (all eras): %s",
+                {target_columns[i]: float(w) for i, w in enumerate(avg_weights)}
+            )
+        # Discovery-only eras (exclude first `warmup` eras by position in unique_eras)
+        # Note: `warmup` and `unique_eras` are defined above in this function
+        try:
+            # Use resolved warmup count if not in local scope
+            warmup_idx = int(locals().get('warmup', configured_warmup or 0))
+            warmup_idx = max(0, min(len(unique_eras), warmup_idx))
+            disc_eras = unique_eras[warmup_idx:]
+            disc_w = [target_discovery.era_weights[e] for e in disc_eras if e in target_discovery.era_weights]
+            if disc_w:
+                disc_avg = np.mean(np.stack(disc_w), axis=0)
+                logging.info(
+                    "Average target weights (discovery-only): %s",
+                    {target_columns[i]: float(w) for i, w in enumerate(disc_avg)}
+                )
+                # Activation frequency and conditional average (when weight > 0)
+                W = np.stack(disc_w)
+                act_mask = W > 1e-9
+                act_freq = act_mask.mean(axis=0)
+                # avoid divide by zero
+                sums = W.sum(axis=0)
+                counts = act_mask.sum(axis=0)
+                cond_avg = np.divide(sums, counts, out=np.zeros_like(sums), where=counts > 0)
+                logging.info(
+                    "Activation frequency (discovery-only): %s",
+                    {target_columns[i]: float(f) for i, f in enumerate(act_freq)}
+                )
+                logging.info(
+                    "Avg weight when active (discovery-only): %s",
+                    {target_columns[i]: float(w) for i, w in enumerate(cond_avg)}
+                )
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -401,22 +505,27 @@ if __name__ == "__main__":
     parser.add_argument("--discovery-file", required=True)
     parser.add_argument("--skip-walk-forward", action="store_true")
     parser.add_argument("--max-eras", type=int)
-    parser.add_argument("--row-limit", type=int)
+    parser.add_argument("--row-limit", type=int, help="Global cap of rows written across all eras (may restrict eras scanned)")
+    parser.add_argument("--rows-per-era", type=int, help="Cap rows written per era; does not prune eras")
     parser.add_argument("--target-limit", type=int)
     parser.add_argument("--cache-dir", type=str, default=None, help="Directory to store/reuse cached outputs")
-    parser.add_argument("--force-recache", action="store_true", help="Ignore cache and recompute")
+    parser.add_argument("--force-recache", action="store_true", help="Ignore cache and recompute (still saves to cache)")
+    # Cache control: default to no-cache, allow opt-in with --cache
+    parser.add_argument("--no-cache", dest="no_cache", action="store_true", default=True, help="Disable cache reuse and saving (default)")
+    parser.add_argument("--cache", dest="no_cache", action="store_false", help="Enable cache reuse and saving")
     # Tuning knobs for discovery speed/quality
-    parser.add_argument("--td-eval-mode", choices=["gbm_full","linear_fast","hybrid"], help="Evaluation mode for target discovery")
-    parser.add_argument("--td-top-full-models", type=int, help="Top K combos to refine with full models in hybrid mode")
-    parser.add_argument("--td-ridge-lambda", type=float, help="Ridge regularization for linear screening")
-    parser.add_argument("--td-sample-per-era", type=int, help="Rows sampled per era for discovery")
-    parser.add_argument("--td-max-combinations", type=int, help="Max weight combinations to test")
-    parser.add_argument("--td-feature-fraction", type=float, help="Feature fraction for model training")
-    parser.add_argument("--td-num-boost-round", type=int, help="LightGBM boosting rounds for full models")
+    parser.add_argument("--td-eval-mode", choices=["gbm_full","linear_fast","hybrid"], default="gbm_full", help="Evaluation mode for target discovery")
+    parser.add_argument("--td-top-full-models", type=int, default=3, help="Top K combos to refine with full models in hybrid mode")
+    parser.add_argument("--td-ridge-lambda", type=float, default=1.0, help="Ridge regularization for linear screening")
+    parser.add_argument("--td-sample-per-era", type=int, default=2000, help="Rows sampled per era for discovery")
+    parser.add_argument("--td-max-combinations", type=int, default=20, help="Max weight combinations to test")
+    parser.add_argument("--td-feature-fraction", type=float, default=0.5, help="Feature fraction for model training")
+    parser.add_argument("--td-num-boost-round", type=int, default=12, help="LightGBM boosting rounds for full models")
     parser.add_argument("--td-max-era-cache", type=int, help="Max eras to keep in preprocessing cache (0 = unlimited)")
     parser.add_argument("--td-clear-cache-every", type=int, help="Clear entire preprocessing cache every N discovery eras (0 = never)")
     parser.add_argument("--td-pre-cache-dir", type=str, help="Directory for persistent preprocessed era cache")
     parser.add_argument("--td-persist-pre-cache", action="store_true", help="Persist per-era preprocessing cache to disk")
+    parser.add_argument("--td-warmup-eras", type=int, help="Number of initial eras to skip for discovery (default 20)")
 
     args = parser.parse_args()
 
@@ -428,9 +537,11 @@ if __name__ == "__main__":
         skip_walk_forward=args.skip_walk_forward,
         max_eras=args.max_eras,
         row_limit=args.row_limit,
+        row_limit_per_era=args.rows_per_era,
         target_limit=args.target_limit,
         cache_dir=args.cache_dir,
         force_recache=args.force_recache,
+    no_cache=args.no_cache,
         td_eval_mode=args.td_eval_mode,
         td_top_full_models=args.td_top_full_models,
         td_ridge_lambda=args.td_ridge_lambda,
@@ -442,4 +553,5 @@ if __name__ == "__main__":
     td_clear_cache_every=args.td_clear_cache_every,
     td_pre_cache_dir=args.td_pre_cache_dir,
     td_persist_pre_cache=args.td_persist_pre_cache,
+    td_warmup_eras=args.td_warmup_eras,
     )

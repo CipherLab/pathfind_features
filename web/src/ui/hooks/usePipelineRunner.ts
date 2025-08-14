@@ -331,7 +331,7 @@ export function usePipelineRunner(
               ? cfg.smokeEras
               : undefined
             : undefined;
-          const rows = cfg.smoke
+          const rowsPerEra = cfg.smoke
             ? cfg.smokeRows && cfg.smokeRows > 0
               ? cfg.smokeRows
               : undefined
@@ -350,7 +350,8 @@ export function usePipelineRunner(
             discovery_file: discovery_file,
             skip_walk_forward: !(cfg.walkForward ?? true),
             max_eras: eras,
-            row_limit: rows,
+            // Use per-era cap to avoid pruning eras due to a global row limit
+            rows_per_era: rowsPerEra,
             target_limit: targetsCap,
             td_eval_mode: cfg.td_eval_mode,
             td_top_full_models: cfg.td_top_full_models,

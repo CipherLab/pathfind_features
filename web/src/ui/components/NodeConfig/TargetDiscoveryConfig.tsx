@@ -149,7 +149,7 @@ export default function TargetDiscoveryConfig({ cfg, onChange }: Props) {
             </label>
             <label className="flex flex-col gap-2">
               <span className="flex items-center justify-between text-sm">
-                <span>Row limit</span>
+                <span>Rows per era</span>
                 <button
                   type="button"
                   className="btn-secondary px-2 py-1 text-xs"
@@ -158,7 +158,7 @@ export default function TargetDiscoveryConfig({ cfg, onChange }: Props) {
                     const v = s?.rows ?? 0
                     onChange({ smokeRows: v })
                   }}
-                  title={maxHint?.rows ? `Max rows: ${maxHint.rows}` : 'Set to total rows in dataset'}
+                  title={maxHint?.rows ? `Dataset rows (per-era max not available): ${maxHint.rows}` : 'No per-era max available'}
                 >
                   Max
                 </button>

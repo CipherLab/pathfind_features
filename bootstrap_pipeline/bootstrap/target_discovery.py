@@ -127,21 +127,31 @@ class WalkForwardTargetDiscovery:
 
             # Build / reuse preprocessing cache per era
             rng = np.random.default_rng(self.random_state)
-            era_scores_raw = []
+            era_scores_raw: list[float] = []
+
+            # Training params (keep light but meaningful)
             params = {
                 'objective': 'regression',
                 'metric': 'rmse',
                 'boosting_type': 'gbdt',
                 'num_leaves': 15,
                 'learning_rate': 0.12,
-                'feature_fraction': 0.25,
+                'feature_fraction': max(0.05, min(float(self.feature_fraction), 1.0)),
                 'bagging_fraction': 0.8,
                 'bagging_freq': 1,
                 'max_bin': 63,
                 'min_data_in_leaf': 50,
                 'verbosity': -1,
-                'seed': self.random_state,
+                'seed': int(self.random_state),
+                'num_threads': int(os.environ.get('TD_NUM_THREADS', '-1')),
             }
+            if os.environ.get("TD_USE_GPU") == "1":
+                params['device_type'] = 'gpu'
+                if 'TD_GPU_PLATFORM_ID' in os.environ:
+                    params['gpu_platform_id'] = int(os.environ['TD_GPU_PLATFORM_ID'])
+                if 'TD_GPU_DEVICE_ID' in os.environ:
+                    params['gpu_device_id'] = int(os.environ['TD_GPU_DEVICE_ID'])
+
             for era in eras:
                 era_data = history_df[history_df['era'] == era]
                 if len(era_data) < 100:
@@ -149,34 +159,56 @@ class WalkForwardTargetDiscovery:
                 cache = self._load_or_build_era_cache(era, era_data, feature_cols, rng)
                 if cache is None:
                     continue
-                    params = {
-                        'objective': 'regression',
-                        'metric': 'rmse',
-                        'boosting_type': 'gbdt',
-                        'num_leaves': 15,
-                        'learning_rate': 0.12,
-                        'feature_fraction': max(0.05, min(self.feature_fraction, 1.0)),
-                        'bagging_fraction': 0.8,
-                        'bagging_freq': 1,
-                        'max_bin': 63,
-                        'min_data_in_leaf': 50,
-                        'verbosity': -1,
-                        'seed': self.random_state,
-                        'num_threads': int(os.environ.get('TD_NUM_THREADS', '-1')),
-                    }
-                    if os.environ.get("TD_USE_GPU") == "1":
-                        params['device_type'] = 'gpu'
-                        if 'TD_GPU_PLATFORM_ID' in os.environ:
-                            params['gpu_platform_id'] = int(os.environ['TD_GPU_PLATFORM_ID'])
-                        if 'TD_GPU_DEVICE_ID' in os.environ:
-                            params['gpu_device_id'] = int(os.environ['TD_GPU_DEVICE_ID'])
+
+                # Compose labels for this weight vector without rebuilding features
+                y_tr = cache['Y_tr_mat'] @ weights
+                y_te = cache['Y_te_mat'] @ weights
+                # Skip degenerate labels
+                if np.allclose(np.std(y_tr), 0):
+                    continue
+
+                # Reuse dataset and set label per combo
+                train_set = cache['train_set']
+                train_set.set_label(y_tr)
+                model = lgb.train(
+                    params,
+                    train_set,
+                    num_boost_round=int(self.num_boost_round),
+                    callbacks=[lgb.log_evaluation(0)],
+                )
+                preds = model.predict(cache['X_te'])
+                # Correlation between preds and target for this era
+                p = np.asarray(preds, dtype=np.float64)
+                t = np.asarray(y_te, dtype=np.float64)
+                p -= p.mean()
+                t -= t.mean()
+                denom = (np.sqrt((p**2).sum()) * np.sqrt((t**2).sum()))
+                if denom == 0 or not np.isfinite(denom):
+                    continue
+                corr = float((p * t).sum() / denom)
+                if np.isfinite(corr):
+                    era_scores_raw.append(corr)
+
+            if not era_scores_raw:
                 return 0.0, 0.0, 0.0, 0.0
+
             signs = [c > 0 for c in era_scores_raw]
             sign_consistency = float(np.mean(signs)) if signs else 0.0
             era_scores = np.abs(era_scores_raw)
             mean_score = float(np.mean(era_scores))
             std_score = float(np.std(era_scores))
             sharpe = (mean_score / (std_score + 1e-6)) * (2 * sign_consistency - self.SIGN_CONSISTENCY_OFFSET)
+
+            # Log edge cases for Sharpe ratio
+            if std_score < 1e-6:
+                logging.warning(
+                    f"Sharpe ratio inflated due to near-zero std_score: mean_score={mean_score:.6f}, std_score={std_score:.6e}, sign_consistency={sign_consistency:.2f}"
+                )
+            if not np.isfinite(sharpe):
+                logging.warning(
+                    f"Sharpe ratio is non-finite: mean_score={mean_score:.6f}, std_score={std_score:.6e}, sign_consistency={sign_consistency:.2f}"
+                )
+
             return mean_score, std_score, sign_consistency, sharpe
         except Exception as e:
             logging.warning(f"Evaluation error: {e}")
@@ -304,6 +336,17 @@ class WalkForwardTargetDiscovery:
             mean_score = float(abs_vals.mean())
             std_score = float(abs_vals.std())
             sharpe = (mean_score / (std_score + 1e-6)) * (2 * sign_consistency - self.SIGN_CONSISTENCY_OFFSET)
+
+            # Log edge cases for Sharpe ratio
+            if std_score < 1e-6:
+                logging.warning(
+                    f"Sharpe ratio inflated due to near-zero std_score: mean_score={mean_score:.6f}, std_score={std_score:.6e}, sign_consistency={sign_consistency:.2f}"
+                )
+            if not np.isfinite(sharpe):
+                logging.warning(
+                    f"Sharpe ratio is non-finite: mean_score={mean_score:.6f}, std_score={std_score:.6e}, sign_consistency={sign_consistency:.2f}"
+                )
+
             results.append({'weights': W[j], 'mean_score': mean_score, 'std_score': std_score, 'sign_consistency': sign_consistency, 'sharpe': sharpe})
         return results
 

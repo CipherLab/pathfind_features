@@ -9,6 +9,7 @@ import json
 import numpy as np
 import lightgbm as lgb
 from sklearn.model_selection import train_test_split
+from .metrics_utils import era_sanity, safe_sharpe, feature_condition_number
 
 try:
     # Optional: for fast linear algebra (falls back to numpy if not present)
@@ -33,15 +34,21 @@ class WalkForwardTargetDiscovery:
         num_boost_round: int = 12,
         max_era_cache: int = 0,
         clear_cache_every: int = 0,
-    pre_cache_dir: str | None = None,
-    persist_pre_cache: bool = False,
+        pre_cache_dir: str | None = None,
+        persist_pre_cache: bool = False,
+        # New knobs (opt-in; defaults keep legacy behavior)
+        use_tversky: bool = False,
+        tversky_k: int = 8,
+        tversky_alpha: float = 0.7,
+        tversky_beta: float = 0.3,
+        robust_stats: bool = True,
     ) -> None:
         # Core config
         self.target_columns = target_columns
         self.n_targets = len(target_columns)
         self.min_history_eras = min_history_eras
         # State
-        self.era_weights: dict = {}
+        self.era_weights = {}
         self.last_weights: np.ndarray | None = None
         # Hyperparameters / knobs
         self.SIGN_CONSISTENCY_OFFSET = 0.5
@@ -56,10 +63,16 @@ class WalkForwardTargetDiscovery:
         self.clear_cache_every = clear_cache_every  # 0 => never
         self.pre_cache_dir = pre_cache_dir or os.environ.get("TD_PRE_CACHE_DIR", "cache/td_pre_cache")
         self.persist_pre_cache = persist_pre_cache
+        # New feature projection / robustness knobs
+        self.use_tversky = bool(use_tversky or (os.environ.get("TD_USE_TVERSKY", "0") == "1"))
+        self.tversky_k = int(os.environ.get("TD_TVERSKY_K", tversky_k))
+        self.tversky_alpha = float(os.environ.get("TD_TVERSKY_ALPHA", tversky_alpha))
+        self.tversky_beta = float(os.environ.get("TD_TVERSKY_BETA", tversky_beta))
+        self.robust_stats = robust_stats
         if self.persist_pre_cache:
             os.makedirs(self.pre_cache_dir, exist_ok=True)
         # Era-level preprocessing cache (LRU OrderedDict: era -> preprocessed data)
-        self._era_pre_cache: OrderedDict[str, dict] = OrderedDict()
+        self._era_pre_cache = OrderedDict()
 
         if eval_mode is None:
             eval_mode = os.environ.get("TD_EVAL_MODE", "hybrid")
@@ -75,6 +88,74 @@ class WalkForwardTargetDiscovery:
             self.top_full_models,
             self.max_era_cache or '∞',
         )
+
+    # ---------------- Robust stats + diagnostics helpers -----------------
+    # moved to metrics_utils: era_sanity, safe_sharpe, feature_condition_number
+
+    # ---------------- Tversky projection helpers (optional) ---------------
+    @staticmethod
+    def _zpos_binarize(X, mu=None, sd=None):
+        X = np.asarray(X, dtype=np.float64)
+        if mu is None or sd is None:
+            mu = X.mean(0)
+            sd = X.std(0, ddof=1)
+        sd = np.where(sd < 1e-12, 1.0, sd)
+        return ( (X - mu) / sd > 0.0 ), (mu, sd)
+
+    @staticmethod
+    def _k_medoids_indices(X, k, seed=0):
+        """Memory-safe farthest-first prototype selection (no O(n^2) matrix).
+
+        Picks a random start, then greedily selects the point with max min-distance
+        to the current set. Approximate but O(n*k*p) memory and works for large n.
+        """
+        rng = np.random.default_rng(seed)
+        n = len(X)
+        if n == 0:
+            return np.array([], dtype=int)
+        k = max(1, min(int(k), n))
+        # start from a random index
+        centers = [int(rng.integers(0, n))]
+        # maintain min distances to chosen centers
+        min_d = np.full(n, np.inf, dtype=np.float64)
+        x0 = X[centers[0]]
+        min_d = np.minimum(min_d, np.linalg.norm(X - x0[None, :], axis=1))
+        for _ in range(1, k):
+            j = int(np.argmax(min_d))
+            centers.append(j)
+            xj = X[j]
+            dj = np.linalg.norm(X - xj[None, :], axis=1)
+            min_d = np.minimum(min_d, dj)
+        return np.array(centers, dtype=int)
+
+    @staticmethod
+    def _tversky_bool(A, B, alpha=0.7, beta=0.3, theta=1.0):
+        inter = (A & B).sum(-1)
+        a_only = (A & ~B).sum(-1)
+        b_only = (B & ~A).sum(-1)
+        return theta * inter - alpha * a_only - beta * b_only
+
+    @classmethod
+    def _tversky_projection_features(cls, X_tr, X_te, k=8, alpha=0.7, beta=0.3, seed=0):
+        A_tr, stats = cls._zpos_binarize(X_tr)
+        mu, sd = stats
+        A_te, _ = cls._zpos_binarize(X_te, mu=mu, sd=sd)
+        idx = cls._k_medoids_indices(X_tr, k, seed=seed)
+        if idx.size == 0:
+            return (np.zeros((X_tr.shape[0], 0), dtype=np.float32), np.zeros((X_te.shape[0], 0), dtype=np.float32),
+                    {"mu": mu, "sd": sd, "proto_idx": idx, "alpha": alpha, "beta": beta})
+        P = A_tr[idx]  # boolean prototypes
+        # Preallocate to reduce temporaries
+        m_tr, m_te, kP = A_tr.shape[0], A_te.shape[0], P.shape[0]
+        S_tr = np.empty((m_tr, kP), dtype=np.int32)
+        S_te = np.empty((m_te, kP), dtype=np.int32)
+        for j in range(kP):
+            s_tr_col = cls._tversky_bool(A_tr, P[j], alpha, beta)
+            s_te_col = cls._tversky_bool(A_te, P[j], alpha, beta)
+            S_tr[:, j] = s_tr_col
+            S_te[:, j] = s_te_col
+        meta = {"mu": mu, "sd": sd, "proto_idx": idx, "alpha": alpha, "beta": beta}
+        return S_tr.astype(np.float32), S_te.astype(np.float32), meta
 
     def generate_smart_combinations(self, n_combinations: int | None = None) -> np.ndarray:
         """Generate target combinations to test - fewer but smarter"""
@@ -130,17 +211,18 @@ class WalkForwardTargetDiscovery:
             era_scores_raw: list[float] = []
 
             # Training params (keep light but meaningful)
+            # LightGBM knobs (lazy trees, more regularized by default)
             params = {
                 'objective': 'regression',
                 'metric': 'rmse',
                 'boosting_type': 'gbdt',
-                'num_leaves': 15,
-                'learning_rate': 0.12,
+                'max_depth': 6,
+                'num_leaves': 63,
+                'learning_rate': 0.05,
                 'feature_fraction': max(0.05, min(float(self.feature_fraction), 1.0)),
-                'bagging_fraction': 0.8,
+                'bagging_fraction': 0.7,
                 'bagging_freq': 1,
                 'max_bin': 63,
-                'min_data_in_leaf': 50,
                 'verbosity': -1,
                 'seed': int(self.random_state),
                 'num_threads': int(os.environ.get('TD_NUM_THREADS', '-1')),
@@ -163,12 +245,23 @@ class WalkForwardTargetDiscovery:
                 # Compose labels for this weight vector without rebuilding features
                 y_tr = cache['Y_tr_mat'] @ weights
                 y_te = cache['Y_te_mat'] @ weights
+                # Sanity check labels; skip degenerate eras loudly
+                lbl_chk = era_sanity(y_tr)
+                if lbl_chk.get("is_constant", False):
+                    logging.warning("[degenerate-era] era=%s labels constant-ish; skip Sharpe/IR. stats=%s", era, lbl_chk)
+                    continue
                 # Skip degenerate labels
                 if np.allclose(np.std(y_tr), 0):
                     continue
 
                 # Reuse dataset and set label per combo
                 train_set = cache['train_set']
+                # Min data in leaf scaled by training rows
+                try:
+                    n_rows = len(y_tr)
+                    params['min_data_in_leaf'] = max(20, int(0.03 * n_rows))
+                except Exception:
+                    params['min_data_in_leaf'] = 50
                 train_set.set_label(y_tr)
                 model = lgb.train(
                     params,
@@ -180,6 +273,11 @@ class WalkForwardTargetDiscovery:
                 # Correlation between preds and target for this era
                 p = np.asarray(preds, dtype=np.float64)
                 t = np.asarray(y_te, dtype=np.float64)
+                # Era diagnostics: predictions
+                pred_chk = era_sanity(p)
+                if pred_chk.get("is_constant", False):
+                    logging.warning("[degenerate-preds] era=%s predictions constant-ish; skip. stats=%s", era, pred_chk)
+                    continue
                 p -= p.mean()
                 t -= t.mean()
                 denom = (np.sqrt((p**2).sum()) * np.sqrt((t**2).sum()))
@@ -194,22 +292,16 @@ class WalkForwardTargetDiscovery:
 
             signs = [c > 0 for c in era_scores_raw]
             sign_consistency = float(np.mean(signs)) if signs else 0.0
-            era_scores = np.abs(era_scores_raw)
-            mean_score = float(np.mean(era_scores))
-            std_score = float(np.std(era_scores))
-            sharpe = (mean_score / (std_score + 1e-6)) * (2 * sign_consistency - self.SIGN_CONSISTENCY_OFFSET)
-
-            # Log edge cases for Sharpe ratio
-            if std_score < 1e-6:
-                logging.warning(
-                    f"Sharpe ratio inflated due to near-zero std_score: mean_score={mean_score:.6f}, std_score={std_score:.6e}, sign_consistency={sign_consistency:.2f}"
-                )
+            # Robust Sharpe across eras
+            sharpe, meta = safe_sharpe(era_scores_raw) if self.robust_stats else (
+                float(np.mean(era_scores_raw)) / (float(np.std(era_scores_raw)) + 1e-6), {"reason": "legacy"}
+            )
+            mean_score = float(np.abs(np.mean(era_scores_raw)))
+            std_score = float(meta.get("std", np.std(era_scores_raw)))
             if not np.isfinite(sharpe):
-                logging.warning(
-                    f"Sharpe ratio is non-finite: mean_score={mean_score:.6f}, std_score={std_score:.6e}, sign_consistency={sign_consistency:.2f}"
-                )
-
-            return mean_score, std_score, sign_consistency, sharpe
+                logging.warning("Sharpe ratio non-finite across eras; meta=%s", meta)
+                sharpe = 0.0
+            return mean_score, std_score, sign_consistency, float(sharpe)
         except Exception as e:
             logging.warning(f"Evaluation error: {e}")
             return 0.0, 0.0, 0.0, 0.0
@@ -270,8 +362,14 @@ class WalkForwardTargetDiscovery:
             Y_mean = Y_train.mean(axis=0, keepdims=True)
             Xc = X_train - X_mean
             Yc = Y_train - Y_mean
+            # Conditioning diagnostics
+            cond, min_eig = feature_condition_number(X_train)
+            applied_shrink = 0.0
+            if cond > 1e12 or min_eig < 1e-6:
+                applied_shrink = 0.1
+                logging.info("[cond] era=%s cond=%.2e min_eig=%.2e -> diagonal loading=%.2f", era, cond, min_eig, applied_shrink)
             XtX = Xc.T @ Xc
-            lam = self.ridge_lambda
+            lam = self.ridge_lambda * (10.0 if (cond > 1e12 or min_eig < 1e-6) else 1.0)
             XtX.ravel()[:: XtX.shape[0] + 1] += lam
             XtY = Xc.T @ Yc
             try:
@@ -283,6 +381,9 @@ class WalkForwardTargetDiscovery:
                 'era': era,
                 'pred_basis': pred_basis,
                 'Y_test': Y_test,
+                'cond': cond,
+                'min_eig': min_eig,
+                'applied_shrink': applied_shrink,
             })
         return out
 
@@ -332,22 +433,15 @@ class WalkForwardTargetDiscovery:
                 continue
             signs = valid_vals > 0
             sign_consistency = float(signs.mean())
-            abs_vals = np.abs(valid_vals)
-            mean_score = float(abs_vals.mean())
-            std_score = float(abs_vals.std())
-            sharpe = (mean_score / (std_score + 1e-6)) * (2 * sign_consistency - self.SIGN_CONSISTENCY_OFFSET)
-
-            # Log edge cases for Sharpe ratio
-            if std_score < 1e-6:
-                logging.warning(
-                    f"Sharpe ratio inflated due to near-zero std_score: mean_score={mean_score:.6f}, std_score={std_score:.6e}, sign_consistency={sign_consistency:.2f}"
-                )
+            # Robust Sharpe across eras for this combo
+            sharpe, meta = safe_sharpe(valid_vals) if self.robust_stats else (
+                float(np.mean(valid_vals)) / (float(np.std(valid_vals)) + 1e-6), {"reason": "legacy"}
+            )
+            mean_score = float(np.abs(np.mean(valid_vals)))
+            std_score = float(meta.get("std", np.std(valid_vals)))
             if not np.isfinite(sharpe):
-                logging.warning(
-                    f"Sharpe ratio is non-finite: mean_score={mean_score:.6f}, std_score={std_score:.6e}, sign_consistency={sign_consistency:.2f}"
-                )
-
-            results.append({'weights': W[j], 'mean_score': mean_score, 'std_score': std_score, 'sign_consistency': sign_consistency, 'sharpe': sharpe})
+                sharpe = 0.0
+            results.append({'weights': W[j], 'mean_score': mean_score, 'std_score': std_score, 'sign_consistency': sign_consistency, 'sharpe': float(sharpe)})
         return results
 
     def discover_weights_for_era(self, current_era, history_df, feature_cols):
@@ -449,6 +543,10 @@ class WalkForwardTargetDiscovery:
             'random_state': self.random_state,
             'features': list(feature_cols),
             'ridge_lambda': self.ridge_lambda,
+            'use_tversky': self.use_tversky,
+            'tversky_k': self.tversky_k,
+            'tversky_alpha': self.tversky_alpha,
+            'tversky_beta': self.tversky_beta,
         }
         sig = hashlib.md5(json.dumps(sig_payload, sort_keys=True).encode('utf-8')).hexdigest()
         return os.path.join(self.pre_cache_dir, f"era_pre_{sig}.npz")
@@ -488,12 +586,32 @@ class WalkForwardTargetDiscovery:
         med = np.where(np.isnan(med), 0.0, med)
         X_tr = np.where(np.isnan(X_tr), med, X_tr)
         X_te = np.where(np.isnan(X_te), med, X_te)
+        # Optional: append Tversky projection features
+        tversky_meta = None
+        if self.use_tversky and X_tr.shape[1] > 0:
+            try:
+                S_tr, S_te, meta = self._tversky_projection_features(
+                    X_tr.astype(np.float64, copy=False),
+                    X_te.astype(np.float64, copy=False),
+                    k=self.tversky_k,
+                    alpha=self.tversky_alpha,
+                    beta=self.tversky_beta,
+                    seed=self.random_state,
+                )
+                if S_tr.shape[1] > 0:
+                    X_tr = np.concatenate([X_tr, S_tr], axis=1)
+                    X_te = np.concatenate([X_te, S_te], axis=1)
+                    tversky_meta = meta
+                    logging.debug("[tversky] era=%s added %s proto features (k=%s, a=%.2f, b=%.2f)", era, S_tr.shape[1], self.tversky_k, self.tversky_alpha, self.tversky_beta)
+            except Exception as e:
+                logging.warning("Tversky feature construction failed for era %s: %s", era, e)
         train_set = lgb.Dataset(X_tr, free_raw_data=False)
         cache = {
             'train_set': train_set,
             'X_te': X_te,
             'Y_tr_mat': Y_tr_mat,
             'Y_te_mat': Y_te_mat,
+            'tversky_meta': tversky_meta,
         }
         self._era_pre_cache[era] = cache
         self._maybe_trim_cache()

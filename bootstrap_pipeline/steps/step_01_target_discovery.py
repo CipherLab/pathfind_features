@@ -17,7 +17,7 @@ from bootstrap_pipeline.bootstrap.target_discovery import WalkForwardTargetDisco
 from bootstrap_pipeline.utils.utils import reduce_mem_usage
 
 # Bump this when changing discovery/caching behavior to invalidate old cache entries
-ALGO_VERSION = "td-v1.2"
+ALGO_VERSION = "td-v1.3"
 
 def setup_logging(log_file):
     """Initializes logging to both file and console for a specific run."""
@@ -209,7 +209,8 @@ def run(
     for k in [
         'td_eval_mode','td_top_full_models','td_ridge_lambda','td_sample_per_era',
         'td_max_combinations','td_feature_fraction','td_num_boost_round',
-        'td_max_era_cache','td_clear_cache_every','td_pre_cache_dir','td_persist_pre_cache'
+        'td_max_era_cache','td_clear_cache_every','td_pre_cache_dir','td_persist_pre_cache',
+        'td_use_tversky','td_tversky_k','td_tversky_alpha','td_tversky_beta','td_robust_stats'
     ]:
         if k in kwargs and kwargs[k] is not None:
             td_kwargs[k] = kwargs[k]
@@ -226,6 +227,11 @@ def run(
         'td_clear_cache_every':'clear_cache_every',
         'td_pre_cache_dir':'pre_cache_dir',
         'td_persist_pre_cache':'persist_pre_cache',
+        'td_use_tversky':'use_tversky',
+        'td_tversky_k':'tversky_k',
+        'td_tversky_alpha':'tversky_alpha',
+        'td_tversky_beta':'tversky_beta',
+        'td_robust_stats':'robust_stats',
     }
     ctor_kwargs = {mapping[k]:v for k,v in td_kwargs.items()}
     target_discovery = WalkForwardTargetDiscovery(target_columns, 20, **ctor_kwargs)
@@ -526,6 +532,12 @@ if __name__ == "__main__":
     parser.add_argument("--td-pre-cache-dir", type=str, help="Directory for persistent preprocessed era cache")
     parser.add_argument("--td-persist-pre-cache", action="store_true", help="Persist per-era preprocessing cache to disk")
     parser.add_argument("--td-warmup-eras", type=int, help="Number of initial eras to skip for discovery (default 20)")
+    # New optional feature-projection and robustness knobs
+    parser.add_argument("--td-use-tversky", action="store_true", help="Append Tversky projection features (boolean z>0 binarization)")
+    parser.add_argument("--td-tversky-k", type=int, default=8, help="Number of Tversky prototypes per era")
+    parser.add_argument("--td-tversky-alpha", type=float, default=0.7, help="Tversky alpha parameter")
+    parser.add_argument("--td-tversky-beta", type=float, default=0.3, help="Tversky beta parameter")
+    parser.add_argument("--td-robust-stats", action="store_true", help="Use robust Sharpe/IR and degenerate era triage")
 
     args = parser.parse_args()
 
@@ -554,4 +566,9 @@ if __name__ == "__main__":
     td_pre_cache_dir=args.td_pre_cache_dir,
     td_persist_pre_cache=args.td_persist_pre_cache,
     td_warmup_eras=args.td_warmup_eras,
+    td_use_tversky=args.td_use_tversky,
+    td_tversky_k=args.td_tversky_k,
+    td_tversky_alpha=args.td_tversky_alpha,
+    td_tversky_beta=args.td_tversky_beta,
+    td_robust_stats=args.td_robust_stats,
     )

@@ -41,7 +41,10 @@ class WalkForwardTargetDiscovery:
         tversky_k: int = 8,
         tversky_alpha: float = 0.7,
         tversky_beta: float = 0.3,
-        robust_stats: bool = True,
+    robust_stats: bool = True,
+    # Era quality controls
+    skip_degenerate_eras: bool = False,
+    mad_tol: float = 1e-12,
     ) -> None:
         # Core config
         self.target_columns = target_columns
@@ -69,6 +72,9 @@ class WalkForwardTargetDiscovery:
         self.tversky_alpha = float(os.environ.get("TD_TVERSKY_ALPHA", tversky_alpha))
         self.tversky_beta = float(os.environ.get("TD_TVERSKY_BETA", tversky_beta))
         self.robust_stats = robust_stats
+        # Era quality controls
+        self.skip_degenerate_eras = bool(skip_degenerate_eras or (os.environ.get("TD_SKIP_DEGENERATE_ERAS", "0") == "1"))
+        self.mad_tol = float(os.environ.get("TD_MAD_TOL", mad_tol))
         if self.persist_pre_cache:
             os.makedirs(self.pre_cache_dir, exist_ok=True)
         # Era-level preprocessing cache (LRU OrderedDict: era -> preprocessed data)
@@ -337,6 +343,16 @@ class WalkForwardTargetDiscovery:
             X = era_data[feature_cols_used].to_numpy(dtype=float, copy=False)
             Y = era_data[self.target_columns].to_numpy(dtype=float, copy=False)
 
+            # Era quality skip: if all targets have negligible MAD, skip this era
+            if self.skip_degenerate_eras:
+                try:
+                    mads = np.median(np.abs(Y - np.median(Y, axis=0, keepdims=True)), axis=0)
+                    if np.all(mads < self.mad_tol):
+                        logging.info("[skip-era] era=%s skipped due to low MAD across all targets (min_mad=%.3e, tol=%.3e)", era, float(np.min(mads)), self.mad_tol)
+                        continue
+                except Exception:
+                    pass
+
             # Simple median imputation
             med = np.nanmedian(X, axis=0)
             med = np.where(np.isnan(med), 0.0, med)
@@ -547,6 +563,8 @@ class WalkForwardTargetDiscovery:
             'tversky_k': self.tversky_k,
             'tversky_alpha': self.tversky_alpha,
             'tversky_beta': self.tversky_beta,
+            'skip_degenerate_eras': self.skip_degenerate_eras,
+            'mad_tol': self.mad_tol,
         }
         sig = hashlib.md5(json.dumps(sig_payload, sort_keys=True).encode('utf-8')).hexdigest()
         return os.path.join(self.pre_cache_dir, f"era_pre_{sig}.npz")
@@ -576,6 +594,15 @@ class WalkForwardTargetDiscovery:
         n = X.shape[0]
         if n < 50:
             return None
+        # Era quality skip: evaluate MAD on targets; skip if all below tolerance
+        if self.skip_degenerate_eras:
+            try:
+                mads = np.median(np.abs(Ymat - np.median(Ymat, axis=0, keepdims=True)), axis=0)
+                if np.all(mads < self.mad_tol):
+                    logging.info("[skip-era] era=%s skipped (cache build) due to low MAD across all targets (min_mad=%.3e, tol=%.3e)", era, float(np.min(mads)), self.mad_tol)
+                    return None
+            except Exception:
+                pass
         idx = np.arange(n)
         rng.shuffle(idx)
         cut = int(n * 0.7)

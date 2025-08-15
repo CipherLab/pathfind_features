@@ -36,7 +36,6 @@ def setup_logging(log_file):
 
 def run(
     input_file: str,
-    target_col: str,
     output_relationships_file: str,
     yolo_mode: bool,
     feature_limit: int | None = None,
@@ -53,6 +52,7 @@ def run(
     batch_size: int = 25000,
     last_n_eras: int | None = None,
     era_col: str = "era",
+    target_col: str = "adaptive_target",
     **kwargs,
 ):
     run_dir = Path(output_relationships_file).parent
@@ -433,12 +433,12 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=25000)
     parser.add_argument("--last-n-eras", type=int, help="Restrict processing to the last N eras present in the input")
     parser.add_argument("--era-col", type=str, default="era")
+    parser.add_argument("--target-col", type=str, default="adaptive_target")
 
     args = parser.parse_args()
 
     run(
         input_file=args.input_file,
-        target_col=args.target_col,
         output_relationships_file=args.output_relationships_file,
         yolo_mode=args.yolo_mode,
         feature_limit=args.feature_limit,
@@ -455,4 +455,5 @@ if __name__ == "__main__":
     batch_size=args.batch_size,
     last_n_eras=args.last_n_eras,
     era_col=args.era_col,
+    target_col=args.target_col
     )

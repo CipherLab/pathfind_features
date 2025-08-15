@@ -17,7 +17,7 @@ from bootstrap_pipeline.bootstrap.target_discovery import WalkForwardTargetDisco
 from bootstrap_pipeline.utils.utils import reduce_mem_usage
 
 # Bump this when changing discovery/caching behavior to invalidate old cache entries
-ALGO_VERSION = "td-v1.3"
+ALGO_VERSION = "td-v1.4"
 
 def setup_logging(log_file):
     """Initializes logging to both file and console for a specific run."""
@@ -110,6 +110,7 @@ def run(
         raise ValueError("feature_sets['medium'] is empty")
 
     logging.info(f"Using {len(target_columns)} targets and {len(feature_columns)} features")
+    logging.info("Tip: For long runs, enable persistent pre-cache (--td-persist-pre-cache) and set a cache dir (--td-pre-cache-dir) to accelerate future passes.")
 
     # -------- Cache key & early return --------
     try:
@@ -210,7 +211,8 @@ def run(
         'td_eval_mode','td_top_full_models','td_ridge_lambda','td_sample_per_era',
         'td_max_combinations','td_feature_fraction','td_num_boost_round',
         'td_max_era_cache','td_clear_cache_every','td_pre_cache_dir','td_persist_pre_cache',
-        'td_use_tversky','td_tversky_k','td_tversky_alpha','td_tversky_beta','td_robust_stats'
+        'td_use_tversky','td_tversky_k','td_tversky_alpha','td_tversky_beta','td_robust_stats',
+        'td_skip_degenerate_eras','td_mad_tol'
     ]:
         if k in kwargs and kwargs[k] is not None:
             td_kwargs[k] = kwargs[k]
@@ -232,9 +234,27 @@ def run(
         'td_tversky_alpha':'tversky_alpha',
         'td_tversky_beta':'tversky_beta',
         'td_robust_stats':'robust_stats',
+        'td_skip_degenerate_eras':'skip_degenerate_eras',
+        'td_mad_tol':'mad_tol',
     }
     ctor_kwargs = {mapping[k]:v for k,v in td_kwargs.items()}
+    # History window for selecting prior eras in discovery (default 50)
+    history_window = int(kwargs.get('td_history_window', 50))
     target_discovery = WalkForwardTargetDiscovery(target_columns, 20, **ctor_kwargs)
+
+    # --- Refactor for Resumability: Load existing weights ---
+    if os.path.exists(discovery_file):
+        try:
+            logging.info(f"Found existing discovery file, loading weights from {discovery_file}")
+            with open(discovery_file, 'r') as f:
+                # Load weights and convert string keys back to original era format if needed
+                # Assuming eras are strings like '0001', simple load is fine.
+                loaded_weights = json.load(f)
+                target_discovery.era_weights = {k: np.array(v) for k, v in loaded_weights.items()}
+                logging.info(f"Successfully loaded {len(target_discovery.era_weights)} existing era weights.")
+        except Exception as e:
+            logging.warning(f"Could not load or parse existing discovery file, starting from scratch. Error: {e}")
+    # --- End Refactor ---
 
     if skip_walk_forward:
         logging.warning("---\n⏩ SKIPPING WALK-FORWARD DISCOVERY ⏩\nUsing equal weights for all eras. This is for parameter tuning ONLY.\n---")
@@ -266,7 +286,15 @@ def run(
                 target_discovery.era_weights[current_era] = np.ones(len(target_columns)) / len(target_columns)
                 continue
 
-            history_eras = unique_eras[max(0, i-50):i]
+            # --- Refactor for Resumability: Check if weights already exist ---
+            # Eras from file may be strings, so check both original and string-cast types
+            if current_era in target_discovery.era_weights or str(current_era) in target_discovery.era_weights:
+                logging.info(f"Weights for era {current_era} already discovered. Skipping.")
+                continue
+            # --- End Refactor ---
+
+            # Use configurable history window length
+            history_eras = unique_eras[max(0, i-history_window):i]
             logging.info(f"Reading history for {len(history_eras)} eras...")
             history_df = pd.read_parquet(
                 input_file,
@@ -285,6 +313,14 @@ def run(
             )
             target_discovery.era_weights[current_era] = optimal_weights
             logging.info("Finished discovering optimal weights.")
+
+            # --- Refactor for Resumability: Save weights incrementally ---
+            try:
+                with open(discovery_file, 'w') as f:
+                    json.dump({str(k): v.tolist() for k, v in target_discovery.era_weights.items()}, f, indent=2)
+            except Exception as e:
+                logging.warning(f"Failed to save incremental weights for era {current_era}. Error: {e}")
+            # --- End Refactor ---
 
             # Periodic cache maintenance
             target_discovery.maybe_periodic_cache_clear(i)
@@ -429,9 +465,9 @@ def run(
     if writer:
         writer.close()
 
-    # Write weights file
-    with open(discovery_file, 'w') as f:
-        json.dump({str(k): v.tolist() for k, v in target_discovery.era_weights.items()}, f, indent=2)
+    # --- Refactor for Resumability: Final weight save is now redundant ---
+    # The weights file is now saved incrementally within the loop.
+    # --- End Refactor ---
 
     # Save outputs to cache for reuse (best-effort) unless caching is disabled
     if use_cache and not force_recache:
@@ -538,6 +574,10 @@ if __name__ == "__main__":
     parser.add_argument("--td-tversky-alpha", type=float, default=0.7, help="Tversky alpha parameter")
     parser.add_argument("--td-tversky-beta", type=float, default=0.3, help="Tversky beta parameter")
     parser.add_argument("--td-robust-stats", action="store_true", help="Use robust Sharpe/IR and degenerate era triage")
+    parser.add_argument("--td-history-window", type=int, default=50, help="Number of prior eras to use for discovery")
+    # Era quality controls
+    parser.add_argument("--td-skip-degenerate-eras", action="store_true", help="Skip eras where all targets have near-zero MAD")
+    parser.add_argument("--td-mad-tol", type=float, default=1e-12, help="MAD tolerance threshold for degeneracy")
 
     args = parser.parse_args()
 
@@ -553,7 +593,7 @@ if __name__ == "__main__":
         target_limit=args.target_limit,
         cache_dir=args.cache_dir,
         force_recache=args.force_recache,
-    no_cache=args.no_cache,
+        no_cache=args.no_cache,
         td_eval_mode=args.td_eval_mode,
         td_top_full_models=args.td_top_full_models,
         td_ridge_lambda=args.td_ridge_lambda,
@@ -561,14 +601,17 @@ if __name__ == "__main__":
         td_max_combinations=args.td_max_combinations,
         td_feature_fraction=args.td_feature_fraction,
         td_num_boost_round=args.td_num_boost_round,
-    td_max_era_cache=args.td_max_era_cache,
-    td_clear_cache_every=args.td_clear_cache_every,
-    td_pre_cache_dir=args.td_pre_cache_dir,
-    td_persist_pre_cache=args.td_persist_pre_cache,
-    td_warmup_eras=args.td_warmup_eras,
-    td_use_tversky=args.td_use_tversky,
-    td_tversky_k=args.td_tversky_k,
-    td_tversky_alpha=args.td_tversky_alpha,
-    td_tversky_beta=args.td_tversky_beta,
-    td_robust_stats=args.td_robust_stats,
+        td_max_era_cache=args.td_max_era_cache,
+        td_clear_cache_every=args.td_clear_cache_every,
+        td_pre_cache_dir=args.td_pre_cache_dir,
+        td_persist_pre_cache=args.td_persist_pre_cache,
+        td_warmup_eras=args.td_warmup_eras,
+        td_use_tversky=args.td_use_tversky,
+        td_tversky_k=args.td_tversky_k,
+        td_tversky_alpha=args.td_tversky_alpha,
+        td_tversky_beta=args.td_tversky_beta,
+        td_robust_stats=args.td_robust_stats,
+    td_history_window=args.td_history_window,
+        td_skip_degenerate_eras=args.td_skip_degenerate_eras,
+        td_mad_tol=args.td_mad_tol,
     )

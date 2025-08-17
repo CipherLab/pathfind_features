@@ -67,6 +67,9 @@ def run(
     force_recache: bool = False,
     no_cache: bool = True,
     td_warmup_eras: int | None = None,
+    use_existing_weights_only: bool = False,
+    weights_readonly: bool = False,
+    discovery_output_file: str | None = None,
     **kwargs,
 ):
     """
@@ -247,18 +250,59 @@ def run(
         try:
             logging.info(f"Found existing discovery file, loading weights from {discovery_file}")
             with open(discovery_file, 'r') as f:
-                # Load weights and convert string keys back to original era format if needed
-                # Assuming eras are strings like '0001', simple load is fine.
-                loaded_weights = json.load(f)
-                target_discovery.era_weights = {k: np.array(v) for k, v in loaded_weights.items()}
+                # Load weights and convert various supported formats into era -> numpy array mapping.
+                loaded = json.load(f)
+
+                era_weights = {}
+                # Case 1: mapping from era -> {...} or era -> [..]
+                if isinstance(loaded, dict):
+                    for k, v in loaded.items():
+                        try:
+                            if isinstance(v, dict) and 'weights' in v:
+                                arr = v['weights']
+                            elif isinstance(v, list):
+                                arr = v
+                            elif isinstance(v, dict) and len(v) == 1:
+                                # sometimes structure is {"weights": [...] } but key names vary
+                                val = next(iter(v.values()))
+                                if isinstance(val, list):
+                                    arr = val
+                                else:
+                                    raise ValueError("unsupported inner value")
+                            else:
+                                raise ValueError("unsupported value type")
+                            era_weights[str(k)] = np.asarray(arr, dtype=float)
+                        except Exception:
+                            logging.debug(f"Skipping unexpected discovery entry for era={k}: {type(v)}")
+                # Case 2: list of records like [{"era": "0001", "weights": [...]}, ...]
+                elif isinstance(loaded, list):
+                    for item in loaded:
+                        if isinstance(item, dict) and 'era' in item and 'weights' in item:
+                            era_weights[str(item['era'])] = np.asarray(item['weights'], dtype=float)
+
+                target_discovery.era_weights = era_weights
                 logging.info(f"Successfully loaded {len(target_discovery.era_weights)} existing era weights.")
         except Exception as e:
             logging.warning(f"Could not load or parse existing discovery file, starting from scratch. Error: {e}")
     # --- End Refactor ---
 
-    if skip_walk_forward:
-        logging.warning("---\n⏩ SKIPPING WALK-FORWARD DISCOVERY ⏩\nUsing equal weights for all eras. This is for parameter tuning ONLY.\n---")
+    # Determine where to write incremental weights (if we ever do)
+    if discovery_output_file:
+        weights_write_path = Path(discovery_output_file)
+    elif weights_readonly:
+        weights_write_path = None
+    else:
+        weights_write_path = Path(discovery_file)
+
+    if skip_walk_forward or use_existing_weights_only:
+        if use_existing_weights_only and not os.path.exists(discovery_file):
+            raise FileNotFoundError("--use-existing-weights-only set but discovery_file not found")
+        if skip_walk_forward and not os.path.exists(discovery_file):
+            logging.warning("--skip-walk-forward without existing weights: using equal weights for all eras")
+        logging.warning("---\n⏩ USING EXISTING WEIGHTS ONLY ⏩\nNo discovery will be performed. Missing eras will use equal weights.\n---")
         for current_era in unique_eras:
+            if current_era in target_discovery.era_weights or str(current_era) in target_discovery.era_weights:
+                continue
             target_discovery.era_weights[current_era] = np.ones(len(target_columns)) / len(target_columns)
     else:
         logging.info("Starting walk-forward discovery loop...")
@@ -316,8 +360,9 @@ def run(
 
             # --- Refactor for Resumability: Save weights incrementally ---
             try:
-                with open(discovery_file, 'w') as f:
-                    json.dump({str(k): v.tolist() for k, v in target_discovery.era_weights.items()}, f, indent=2)
+                if weights_write_path:
+                    with open(weights_write_path, 'w') as f:
+                        json.dump({str(k): v.tolist() for k, v in target_discovery.era_weights.items()}, f, indent=2)
             except Exception as e:
                 logging.warning(f"Failed to save incremental weights for era {current_era}. Error: {e}")
             # --- End Refactor ---
@@ -475,7 +520,9 @@ def run(
             tmp_parquet = cache_parquet.with_suffix(".parquet.tmp")
             tmp_weights = cache_weights.with_suffix(".json.tmp")
             shutil.copyfile(output_file, tmp_parquet)
-            shutil.copyfile(discovery_file, tmp_weights)
+            # Save weights from the in-memory map, not necessarily from discovery_file if readonly
+            with open(tmp_weights, 'w') as f:
+                json.dump({str(k): v.tolist() for k, v in target_discovery.era_weights.items()}, f)
             tmp_parquet.replace(cache_parquet)
             tmp_weights.replace(cache_weights)
             logging.info("CACHE SAVE: Stored outputs for signature %s in %s", cache_sig, str(use_cache_dir))
@@ -578,6 +625,9 @@ if __name__ == "__main__":
     # Era quality controls
     parser.add_argument("--td-skip-degenerate-eras", action="store_true", help="Skip eras where all targets have near-zero MAD")
     parser.add_argument("--td-mad-tol", type=float, default=1e-12, help="MAD tolerance threshold for degeneracy")
+    parser.add_argument("--use-existing-weights-only", action="store_true", help="Do not run discovery; require weights for all eras or fallback to equal weights")
+    parser.add_argument("--weights-readonly", action="store_true", help="Never modify the provided discovery_file; any incremental saves go to --discovery-output-file if set")
+    parser.add_argument("--discovery-output-file", type=str, help="Optional separate file to write/append discovered weights; discovery_file will be treated as input only")
 
     args = parser.parse_args()
 
@@ -611,7 +661,10 @@ if __name__ == "__main__":
         td_tversky_alpha=args.td_tversky_alpha,
         td_tversky_beta=args.td_tversky_beta,
         td_robust_stats=args.td_robust_stats,
-    td_history_window=args.td_history_window,
+        td_history_window=args.td_history_window,
         td_skip_degenerate_eras=args.td_skip_degenerate_eras,
         td_mad_tol=args.td_mad_tol,
+        use_existing_weights_only=args.use_existing_weights_only,
+        weights_readonly=args.weights_readonly,
+        discovery_output_file=args.discovery_output_file,
     )

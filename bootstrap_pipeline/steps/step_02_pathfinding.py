@@ -53,6 +53,7 @@ def run(
     last_n_eras: int | None = None,
     era_col: str = "era",
     target_col: str = "adaptive_target",
+    feature_tail: bool = False,
     **kwargs,
 ):
     run_dir = Path(output_relationships_file).parent
@@ -96,6 +97,7 @@ def run(
             'target_col': target_col,
             'yolo': bool(yolo_mode),
             'feature_limit': feature_limit,
+            'feature_tail': bool(feature_tail),
             'row_limit': row_limit,
             'pf_feature_cap': pf_feature_cap,
             'n_paths': n_paths,
@@ -147,7 +149,10 @@ def run(
         raise ValueError(f"Requested last_n_eras but era column '{era_col}' not found in input. Columns: {all_columns[:10]}...")
     feature_columns = [col for col in all_columns if col.startswith('feature')]
     if feature_limit is not None:
-        feature_columns = feature_columns[:feature_limit]
+        if feature_tail:
+            feature_columns = feature_columns[-feature_limit:]
+        else:
+            feature_columns = feature_columns[:feature_limit]
     logging.info(
         f"Pathfinding setup: features={len(feature_columns)} (limit={feature_limit}), "
         f"row_limit={row_limit}, yolo_mode={yolo_mode}, debug={debug}"
@@ -261,17 +266,20 @@ def run(
                     # Extract top edges cheaply
                     top_k = 15
                     edges = []
-                    # mat is at most 120x120; scanning upper triangle is fine
-                    for i in range(len(feature_columns)):
-                        for j in range(i + 1, len(feature_columns)):
+                    # Use actual matrix size in case internal engine caps features
+                    n_mat = mat.shape[0]
+                    feat_names = feature_columns[:n_mat]
+                    # scan upper triangle of the actual matrix
+                    for i in range(n_mat):
+                        for j in range(i + 1, n_mat):
                             s = float(mat[i, j])
                             if s >= 0.15:  # avoid noise
                                 edges.append((s, i, j))
                     edges.sort(reverse=True)
                     top_edges = [
                         {
-                            'f1': feature_columns[i],
-                            'f2': feature_columns[j],
+                            'f1': feat_names[i],
+                            'f2': feat_names[j],
                             's': float(s)
                         }
                         for s, i, j in edges[:top_k]
@@ -345,14 +353,16 @@ def run(
             if progress_file:
                 # Final snapshot as well
                 edges = []
-                for i in range(len(feature_columns)):
-                    for j in range(i + 1, len(feature_columns)):
+                n_mat = mat.shape[0]
+                feat_names = feature_columns[:n_mat]
+                for i in range(n_mat):
+                    for j in range(i + 1, n_mat):
                         s = float(mat[i, j])
                         if s >= 0.15:
                             edges.append((s, i, j))
                 edges.sort(reverse=True)
                 top_edges = [
-                    {'f1': feature_columns[i], 'f2': feature_columns[j], 's': float(s)}
+                    {'f1': feat_names[i], 'f2': feat_names[j], 's': float(s)}
                     for s, i, j in edges[:15]
                 ]
                 snap = {
@@ -416,7 +426,6 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Creative Pathfinding Discovery")
     parser.add_argument("--input-file", required=True)
-    parser.add_argument("--target-col", required=True)
     parser.add_argument("--output-relationships-file", required=True)
     parser.add_argument("--yolo-mode", action="store_true")
     parser.add_argument("--feature-limit", type=int)
@@ -434,6 +443,7 @@ if __name__ == "__main__":
     parser.add_argument("--last-n-eras", type=int, help="Restrict processing to the last N eras present in the input")
     parser.add_argument("--era-col", type=str, default="era")
     parser.add_argument("--target-col", type=str, default="adaptive_target")
+    parser.add_argument("--feature-tail", action="store_true", help="When set, select the last N features instead of the first N (works with --feature-limit)")
 
     args = parser.parse_args()
 

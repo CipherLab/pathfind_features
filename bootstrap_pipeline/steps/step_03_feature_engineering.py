@@ -144,15 +144,35 @@ def run(
     if writer:
         writer.close()
 
-    # Save the new feature names to a file in the run directory
+    # Derive new feature names from the output parquet by comparing schemas with input parquet.
+    # This ensures the JSON lists exactly the columns materialized in the new parquet (robust
+    # to any writer-side changes or features added after batch processing). Fall back to the
+    # in-memory collection if parquet reading fails for any reason.
+    try:
+        input_pf = pq.ParquetFile(input_file)
+        input_cols = [field.name for field in input_pf.schema]
+    except Exception:
+        input_cols = []
+
+    derived_feature_names: list[str] = []
+    try:
+        out_pf = pq.ParquetFile(output_file)
+        out_cols = [field.name for field in out_pf.schema]
+        # New features are columns present in the output but not in the original input
+        derived_feature_names = [c for c in out_cols if c not in input_cols]
+    except Exception:
+        # If we can't read the output parquet for any reason, fall back to names collected
+        # during processing to avoid losing the list.
+        derived_feature_names = new_feature_names
+
     features_list_path = run_dir / "new_feature_names.json"
     with open(features_list_path, "w") as f:
-        json.dump(new_feature_names, f, indent=2)
+        json.dump(derived_feature_names, f, indent=2)
 
     logging.info(
         "Feature Engineering complete. Rows processed=%s, new features created=%s",
         processed_rows,
-        len(new_feature_names),
+        len(derived_feature_names),
     )
 
 

@@ -8,3 +8,4 @@ fastapi
 uvicorn[standard]
 pydantic
 pytest
+python-multipart

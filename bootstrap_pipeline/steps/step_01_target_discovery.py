@@ -243,7 +243,8 @@ def run(
     ctor_kwargs = {mapping[k]:v for k,v in td_kwargs.items()}
     # History window for selecting prior eras in discovery (default 50)
     history_window = int(kwargs.get('td_history_window', 50))
-    target_discovery = WalkForwardTargetDiscovery(target_columns, 20, **ctor_kwargs)
+    # Construct discovery object using configured history window (min_history_eras)
+    target_discovery = WalkForwardTargetDiscovery(target_columns, min_history_eras=history_window, **ctor_kwargs)
 
     # --- Refactor for Resumability: Load existing weights ---
     if os.path.exists(discovery_file):

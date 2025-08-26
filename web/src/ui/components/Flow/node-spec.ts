@@ -22,7 +22,6 @@ export const HandleTypes: Record<
   ADAPTIVE_TARGETS_PARQUET: { color: "#34d399", shape: "diamond" },
   TARGET_DISCOVERY_JSON: { color: "#facc15", shape: "star" },
   // New TD → PF handoff payloads with distinct visuals
-  TD_CANDIDATE_TARGETS: { color: "#10b981", shape: "hexagon" },
   TD_DISCOVERY_META: { color: "#f97316", shape: "pentagon" },
   FINAL_OUTPUT: { color: "#f59e0b", shape: "star" },
 };
@@ -113,7 +112,7 @@ export const NodeConstraints: Record<
     outputs: [
       {
         id: "out-adaptive-targets",
-        type: "TD_CANDIDATE_TARGETS",
+        type: "ADAPTIVE_TARGETS_PARQUET",
         label: "",
       },
       {
@@ -132,7 +131,7 @@ export const NodeConstraints: Record<
     inputs: [
       {
         id: "in-adaptive-targets",
-        type: "TD_CANDIDATE_TARGETS",
+        type: "ADAPTIVE_TARGETS_PARQUET",
         label: "",
         required: true,
       },
@@ -140,7 +139,7 @@ export const NodeConstraints: Record<
         id: "in-target-discovery",
         type: "TD_DISCOVERY_META",
         label: "",
-        required: true,
+        required: false,
       },
     ],
     outputs: [

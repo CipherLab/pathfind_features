@@ -1,5 +1,6 @@
 from __future__ import annotations
 from fastapi import FastAPI, HTTPException
+from fastapi import UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Any, Dict, List
@@ -290,12 +291,46 @@ async def run_step_pathfinding_background(body: BgPathfindingReq):
 
     The job writes detailed logs to logs_path and the step-specific logs to the same file.
     """
+    # Resolve logs path and run dir based on intended relationships output
+    out = Path(body.output_relationships_file)
+    logs_path = Path(body.logs_path) if body.logs_path else (out.parent / "logs.log")
+
+    # If the provided input parquet is outside the run directory, copy it into the run dir
+    # to ensure stable availability and consistent naming across runs.
+    try:
+        root = Path(__file__).resolve().parents[1]
+        in_path = Path(body.input_file)
+        in_abs = in_path if in_path.is_absolute() else (root / in_path)
+        if not in_abs.exists():
+            raise HTTPException(404, detail=f"input parquet not found: {body.input_file}")
+        run_dir = out.parent
+        run_dir.mkdir(parents=True, exist_ok=True)
+        # Try to derive a stable name from the relationships filename
+        stem = out.stem  # e.g., 02_relationships_<nodeId>
+        suffix = stem.replace("02_relationships_", "") or "input"
+        canonical = run_dir / f"01_adaptive_targets_{suffix}.parquet"
+        # Only copy if the source is different from the target
+        use_input = in_abs
+        try:
+            if in_abs.resolve() != canonical.resolve():
+                # Best-effort copy; if it fails, fall back to original path
+                import shutil
+                shutil.copy2(str(in_abs), str(canonical))
+                use_input = canonical
+        except Exception:
+            # Ignore copy failures; proceed with original path
+            use_input = in_abs
+    except HTTPException:
+        raise
+    except Exception as ex:
+        raise HTTPException(500, detail=f"failed to prepare input parquet: {ex}")
+
     # Build process args identical to ops.run_step_pathfinding, but non-blocking
     py = str((ROOT_DIR/ ".venv/bin/python") if (ROOT_DIR/".venv/bin/python").exists() else sys.executable)
     args = [
         py,
         str(ROOT_DIR / "bootstrap_pipeline" / "steps" / "step_02_pathfinding.py"),
-        "--input-file", body.input_file,
+        "--input-file", str(use_input),
         "--target-col", body.target_col,
         "--output-relationships-file", body.output_relationships_file,
     ]
@@ -330,9 +365,6 @@ async def run_step_pathfinding_background(body: BgPathfindingReq):
     if body.era_col:
         args += ["--era-col", body.era_col]
 
-    # Resolve logs path
-    out = Path(body.output_relationships_file)
-    logs_path = Path(body.logs_path) if body.logs_path else (out.parent / "logs.log")
     env = {"PYTHONPATH": str(ROOT_DIR), "PIPELINE_LOG_TO_STDOUT_ONLY": "1"}
     job = STEP_JOBS.start(args, logs_path=logs_path, outputs={"relationships_file": str(out)}, cwd=str(ROOT_DIR), env=env)
     return {"job_id": job.id, "status": job.status, "logs_path": str(logs_path)}
@@ -372,6 +404,32 @@ async def derive_features(body: ExtractFeaturesReq):
     if code != 0:
         raise HTTPException(500, detail=f"failed to derive features.json from {body.input_data}")
     return {"status": "ok", "output": body.output_json}
+
+
+@app.post("/files/upload")
+async def upload_file(file: UploadFile = File(...), subdir: Optional[str] = None, filename: Optional[str] = None):
+    """Upload a file into pipeline_runs/uploads and return the relative path.
+
+    Query params:
+      - subdir: optional subdirectory under pipeline_runs/uploads to place the file (sanitized)
+      - filename: optional target filename; defaults to the uploaded filename
+    """
+    root = Path(__file__).resolve().parents[1]
+    base = root / "pipeline_runs" / "uploads"
+    # sanitize subdir and filename to avoid path traversal
+    safe_subdir = Path(subdir).name if subdir else ""
+    safe_name = Path(filename or file.filename or "uploaded.dat").name
+    dest_dir = base / safe_subdir if safe_subdir else base
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / safe_name
+    try:
+        content = await file.read()
+        dest_path.write_bytes(content)
+    except Exception as ex:
+        raise HTTPException(500, detail=f"failed to save upload: {ex}")
+    # Return workspace-relative path
+    rel = dest_path.relative_to(root)
+    return {"status": "ok", "path": str(rel)}
 
 
 @app.get("/runs")

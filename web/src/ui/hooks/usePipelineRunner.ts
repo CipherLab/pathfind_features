@@ -225,10 +225,14 @@ export function usePipelineRunner(
               const discoveryPath = src.data.config?.discoveryPath as
                 | string
                 | undefined;
+              // Do not overwrite an explicitly provided inputData on the downstream node
+              const alreadyHasInput = Boolean(n.data.config?.inputData);
               const cfg = {
                 ...n.data.config,
                 inheritTargetsFrom: src.id,
-                ...(parquetPath ? { inputData: parquetPath } : {}),
+                ...(parquetPath && !alreadyHasInput
+                  ? { inputData: parquetPath }
+                  : {}),
                 ...(discoveryPath ? { targetsJson: discoveryPath } : {}),
               };
               const status = (
@@ -460,10 +464,9 @@ export function usePipelineRunner(
             await new Promise((res) => setTimeout(res, 2000));
           }
         } else if (data.kind === "pathfinding") {
-          // Resolve required inputs: parquet and targets json
+          // Resolve required input: parquet only (TD discovery meta is optional)
           let parquetPath: string | undefined = cfg.inputData;
-          let targetsJsonPath: string | undefined = cfg.targetsJson;
-          if (!parquetPath || !targetsJsonPath) {
+          if (!parquetPath) {
             const incoming = edges.filter((e) => e.target === id);
             for (const e of incoming) {
               const up = nodes.find((n) => n.id === e.source);
@@ -474,18 +477,10 @@ export function usePipelineRunner(
                   up.data.config.inputData ||
                   parquetPath;
               }
-              if (e.sourceHandle === "out-discovery") {
-                targetsJsonPath =
-                  up.data.config.discoveryPath ||
-                  up.data.config.targetsJson ||
-                  targetsJsonPath;
-              }
             }
           }
-          if (!parquetPath || !targetsJsonPath) {
-            throw new Error(
-              "Pathfinding requires both parquet and targets.json inputs"
-            );
+          if (!parquetPath) {
+            throw new Error("Pathfinding requires a parquet input");
           }
           const relationships_file = `pipeline_runs/${experimentName}/02_relationships_${id}.json`;
           // Map config to new script params
@@ -511,6 +506,15 @@ export function usePipelineRunner(
           const top_k = cfg.topK && cfg.topK > 0 ? cfg.topK : undefined;
           const batch_size =
             cfg.batchSize && cfg.batchSize > 0 ? cfg.batchSize : undefined;
+          // Fail-fast existence check to avoid launching jobs against missing files
+          try {
+            await jpost("/inspect", { path: parquetPath });
+          } catch (e) {
+            throw new Error(
+              `Input parquet not found or unreadable: ${parquetPath}`
+            );
+          }
+
           const payload = {
             input_file: parquetPath,
             target_col: "adaptive_target",

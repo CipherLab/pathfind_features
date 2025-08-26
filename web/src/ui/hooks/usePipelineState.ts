@@ -75,7 +75,8 @@ export function usePipelineState() {
       if (!source || !target) return;
       if (!isValidConnection(conn, nodes, edges)) return;
 
-      // Determine which source handle is being used and pick its label/type
+      // Determine which source handle is being used and pick its label/type.
+      // For file-source, override by config.payloadType.
       const spec = NodeConstraints[source.data.kind];
       const outDefs =
         spec.outputs && spec.outputs.length
@@ -83,8 +84,12 @@ export function usePipelineState() {
           : spec.output
           ? [spec.output]
           : [];
-      const chosen =
+      let chosen =
         outDefs.find((o) => o.id === conn.sourceHandle) || outDefs[0];
+      if (source.data.kind === "file-source" && chosen) {
+        const pt = (source.data.config?.payloadType as any) || chosen.type;
+        chosen = { ...chosen, type: pt } as any;
+      }
       const color = chosen ? HandleTypes[chosen.type].color : "#64748b";
       const label = chosen?.label || "";
 
@@ -116,6 +121,8 @@ export function usePipelineState() {
       const title =
         kind === "data-source"
           ? "Data Source"
+          : kind === "file-source"
+          ? "File Source"
           : kind === "feature-selection"
           ? "Features"
           : kind === "target-discovery"
@@ -140,6 +147,11 @@ export function usePipelineState() {
               smokeFeat: 8,
               cacheDir: "cache/pathfinding_cache",
               sanityCheck: true,
+            }
+          : kind === "file-source"
+          ? {
+              payloadType: "PARQUET",
+              inputPath: "v5.0/train.parquet",
             }
           : {};
 

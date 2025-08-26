@@ -9,6 +9,10 @@ import json
 import numpy as np
 import lightgbm as lgb
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import Ridge
+from scipy.stats import pearsonr
+import warnings
 from .metrics_utils import era_sanity, safe_sharpe, feature_condition_number
 
 try:
@@ -98,6 +102,28 @@ class WalkForwardTargetDiscovery:
     # ---------------- Robust stats + diagnostics helpers -----------------
     # moved to metrics_utils: era_sanity, safe_sharpe, feature_condition_number
 
+    @staticmethod
+    def _pearson_stat(x, y) -> float:
+        """Robustly compute Pearson correlation coefficient and return the statistic as float."""
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                res = pearsonr(x, y)
+            # SciPy >= 1.10 returns PearsonRResult with attribute 'statistic'; otherwise a tuple
+            if hasattr(res, 'statistic'):
+                r_val = float(getattr(res, 'statistic'))
+            else:
+                # For older scipy versions, res is a tuple (correlation, p_value)
+                from typing import cast
+                r_tuple = cast(tuple[float, float], res)
+                r_val = float(r_tuple[0])
+            r = r_val
+            if not np.isfinite(r):
+                return 0.0
+            return r
+        except Exception:
+            return 0.0
+
     # ---------------- Tversky projection helpers (optional) ---------------
     @staticmethod
     def _zpos_binarize(X, mu=None, sd=None):
@@ -164,13 +190,13 @@ class WalkForwardTargetDiscovery:
         return S_tr.astype(np.float32), S_te.astype(np.float32), meta
 
     def generate_smart_combinations(self, n_combinations: int | None = None) -> np.ndarray:
-        """Generate target combinations to test - fewer but smarter"""
+        """Generate target combinations to test - fewer but smarter (improved from 2.0)"""
         if n_combinations is None:
             n_combinations = self.max_combinations
         combinations = []
         
-        # All pure single-target combinations
-        for i in range(self.n_targets):
+        # Pure targets (top performers only - limit to first 5 for speed)
+        for i in range(min(5, self.n_targets)):
             weights = np.zeros(self.n_targets)
             weights[i] = 1.0
             combinations.append(weights)
@@ -178,18 +204,18 @@ class WalkForwardTargetDiscovery:
         # Equal weight (the baseline everyone uses)
         combinations.append(np.ones(self.n_targets) / self.n_targets)
         
-        # Top-heavy (first few indices for now; later: rank by history)
+        # Top-heavy (first few targets get most weight)
         for focus in [2, 3]:
             if focus <= self.n_targets:
                 weights = np.zeros(self.n_targets)
                 weights[:focus] = np.random.dirichlet(np.ones(focus))
                 combinations.append(weights)
         
-        # Random sparse combinations (respect cap after base set)
+        # Random sparse combinations (more focused than original)
         base_len = len(combinations)
         if n_combinations < base_len:
-            # Prune if caller requested fewer than base (keep most interpretable first entries)
             return np.array(combinations[:n_combinations])
+        
         remaining = max(0, n_combinations - base_len)
         for _ in range(remaining):
             weights = np.zeros(self.n_targets)
@@ -202,36 +228,92 @@ class WalkForwardTargetDiscovery:
         
         return np.array(combinations)
     
+    # --------- Fast Ridge pre-screening to cut LGBM calls ---------
+    def evaluate_with_ridge(self, weights, history_df, feature_cols, top_k_features: int = 80):
+        """Fast Ridge regression evaluation for pre-screening combinations."""
+        try:
+            eras = history_df['era'].unique()
+            if len(eras) < 3:
+                return 0.0
+            scores = []
+            for era in eras:
+                era_data = history_df[history_df['era'] == era]
+                if len(era_data) < 100:
+                    continue
+                if len(era_data) > 1000:
+                    era_data = era_data.sample(n=1000, random_state=42)
+                # Build target with NaNs handled
+                y = np.dot(era_data[self.target_columns].fillna(0).values, weights)
+                y = np.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0)
+                if np.std(y) < 1e-8:
+                    continue
+                X_df = era_data[feature_cols].replace([np.inf, -np.inf], np.nan).fillna(0)
+                corrs = []
+                for col in X_df.columns:
+                    r = self._pearson_stat(X_df[col].values, y)
+                    corrs.append((col, abs(r)))
+                corrs.sort(key=lambda x: x[1], reverse=True)
+                selected = [c for c,_ in corrs[:min(top_k_features, len(corrs))]]
+                if not selected:
+                    continue
+                X = X_df[selected].values
+                if len(X) < 100:
+                    continue
+                # simple train/test split
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+                scaler = StandardScaler()
+                X_train = scaler.fit_transform(X_train)
+                X_test = scaler.transform(X_test)
+                model = Ridge(alpha=1.0)
+                model.fit(X_train, y_train)
+                pred = np.asarray(model.predict(X_test))
+                if np.std(pred) < 1e-8 or np.std(y_test) < 1e-8:
+                    continue
+                corr = self._pearson_stat(pred, np.asarray(y_test))
+                if np.isfinite(corr):
+                    scores.append(abs(corr))
+            if not scores:
+                return 0.0
+            return float(np.mean(scores))
+        except Exception as e:
+            logging.warning(f"Ridge pre-screen error: {e}")
+            return 0.0
+
+    def fast_combination_screen(self, combinations, history_df, feature_cols, keep_top: int = 3):
+        """Pre-screen combinations using fast Ridge regression."""
+        scored = []
+        for combo in combinations:
+            score = self.evaluate_with_ridge(combo, history_df, feature_cols)
+            scored.append((combo, score))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [c for c,_ in scored[:keep_top]]
+    
     def evaluate_combination_robustly(self, weights, history_df, feature_cols):
         """
         Evaluate a target combination across multiple historical eras
-        Uses cross-validation instead of cherry-picking the best era
+        Uses cross-validation with improved feature selection from 2.0
         """
         try:
             eras = history_df['era'].unique()
             if len(eras) < 3:
                 return 0.0, 0.0, 0.0, 0.0
 
-            # Build / reuse preprocessing cache per era
-            rng = np.random.default_rng(self.random_state)
             era_scores_raw: list[float] = []
+            top_k_features = min(80, len(feature_cols))  # Limit features for speed
 
-            # Training params (keep light but meaningful)
-            # LightGBM knobs (lazy trees, more regularized by default)
+            # LightGBM params - optimized for speed while maintaining quality
             params = {
                 'objective': 'regression',
                 'metric': 'rmse',
                 'boosting_type': 'gbdt',
-                'max_depth': 6,
-                'num_leaves': 63,
-                'learning_rate': 0.05,
-                'feature_fraction': max(0.05, min(float(self.feature_fraction), 1.0)),
-                'bagging_fraction': 0.7,
+                'num_leaves': 8,  # Reduced for speed
+                'learning_rate': 0.2,  # Higher for fewer rounds
+                'feature_fraction': 0.5,  # More aggressive subsampling
+                'bagging_fraction': 0.8,
                 'bagging_freq': 1,
-                'max_bin': 63,
                 'verbosity': -1,
-                'seed': int(self.random_state),
                 'num_threads': int(os.environ.get('TD_NUM_THREADS', '-1')),
+                'seed': 42
             }
             if os.environ.get("TD_USE_GPU") == "1":
                 params['device_type'] = 'gpu'
@@ -244,70 +326,81 @@ class WalkForwardTargetDiscovery:
                 era_data = history_df[history_df['era'] == era]
                 if len(era_data) < 100:
                     continue
-                cache = self._load_or_build_era_cache(era, era_data, feature_cols, rng)
-                if cache is None:
+
+                # Sample for efficiency
+                if len(era_data) > 1000:
+                    era_data = era_data.sample(n=1000, random_state=42)
+
+                # Create combined target
+                combined_target = np.dot(era_data[self.target_columns].values, weights)
+                combined_target = np.nan_to_num(combined_target, nan=0.0, posinf=0.0, neginf=0.0)
+
+                # Skip degenerate targets
+                if np.std(combined_target) < 1e-8:
                     continue
 
-                # Compose labels for this weight vector without rebuilding features
-                y_tr = cache['Y_tr_mat'] @ weights
-                y_te = cache['Y_te_mat'] @ weights
-                # Sanity check labels; skip degenerate eras loudly
-                lbl_chk = era_sanity(y_tr)
-                if lbl_chk.get("is_constant", False):
-                    logging.warning("[degenerate-era] era=%s labels constant-ish; skip Sharpe/IR. stats=%s", era, lbl_chk)
+                # Fast Pearson feature selection (from 2.0 approach)
+                X_df = era_data[feature_cols]
+                X_df = X_df.replace([np.inf, -np.inf], np.nan).fillna(0)
+                
+                corrs = []
+                for col in X_df.columns:
+                    r = self._pearson_stat(X_df[col].values, combined_target)
+                    corrs.append((col, abs(r)))
+                corrs.sort(key=lambda x: x[1], reverse=True)
+                selected_cols = [c for c, _ in corrs[:top_k_features]]
+                
+                if not selected_cols:
                     continue
-                # Skip degenerate labels
-                if np.allclose(np.std(y_tr), 0):
+                    
+                feature_matrix = X_df[selected_cols].values
+
+                if len(feature_matrix) < 100:
                     continue
 
-                # Reuse dataset and set label per combo
-                train_set = cache['train_set']
-                # Min data in leaf scaled by training rows
-                try:
-                    n_rows = len(y_tr)
-                    params['min_data_in_leaf'] = max(20, int(0.03 * n_rows))
-                except Exception:
-                    params['min_data_in_leaf'] = 50
-                train_set.set_label(y_tr)
-                model = lgb.train(
-                    params,
-                    train_set,
-                    num_boost_round=int(self.num_boost_round),
-                    callbacks=[lgb.log_evaluation(0)],
+                # Train-test split for this era
+                X_train, X_test, y_train, y_test = train_test_split(
+                    feature_matrix, combined_target, test_size=0.3, random_state=42
                 )
-                preds = model.predict(cache['X_te'])
-                # Correlation between preds and target for this era
-                p = np.asarray(preds, dtype=np.float64)
-                t = np.asarray(y_te, dtype=np.float64)
-                # Era diagnostics: predictions
-                pred_chk = era_sanity(p)
-                if pred_chk.get("is_constant", False):
-                    logging.warning("[degenerate-preds] era=%s predictions constant-ish; skip. stats=%s", era, pred_chk)
-                    continue
-                p -= p.mean()
-                t -= t.mean()
-                denom = (np.sqrt((p**2).sum()) * np.sqrt((t**2).sum()))
-                if denom == 0 or not np.isfinite(denom):
-                    continue
-                corr = float((p * t).sum() / denom)
-                if np.isfinite(corr):
-                    era_scores_raw.append(corr)
+
+                # Quick LightGBM model
+                train_data = lgb.Dataset(X_train, label=y_train)
+                valid_data = lgb.Dataset(X_test, label=y_test, reference=train_data)
+
+                model = lgb.train(
+                    params, train_data, num_boost_round=20,  # Reduced rounds for speed
+                    valid_sets=[valid_data],
+                    callbacks=[lgb.early_stopping(5), lgb.log_evaluation(0)]
+                )
+
+                y_pred = np.asarray(model.predict(X_test))
+
+                # Correlation check
+                if np.std(y_pred) > 1e-8 and np.std(y_test) > 1e-8:
+                    correlation = self._pearson_stat(y_pred, np.asarray(y_test))
+                    if np.isfinite(correlation):
+                        era_scores_raw.append(correlation)
 
             if not era_scores_raw:
                 return 0.0, 0.0, 0.0, 0.0
 
+            # Compute metrics compatible with original interface
             signs = [c > 0 for c in era_scores_raw]
             sign_consistency = float(np.mean(signs)) if signs else 0.0
-            # Robust Sharpe across eras
+            
+            # Robust Sharpe calculation (keeping original approach)
             sharpe, meta = safe_sharpe(era_scores_raw) if self.robust_stats else (
                 float(np.mean(era_scores_raw)) / (float(np.std(era_scores_raw)) + 1e-6), {"reason": "legacy"}
             )
             mean_score = float(np.abs(np.mean(era_scores_raw)))
             std_score = float(meta.get("std", np.std(era_scores_raw)))
+            
             if not np.isfinite(sharpe):
                 logging.warning("Sharpe ratio non-finite across eras; meta=%s", meta)
                 sharpe = 0.0
+                
             return mean_score, std_score, sign_consistency, float(sharpe)
+            
         except Exception as e:
             logging.warning(f"Evaluation error: {e}")
             return 0.0, 0.0, 0.0, 0.0
@@ -469,6 +562,15 @@ class WalkForwardTargetDiscovery:
             return np.ones(self.n_targets) / self.n_targets
 
         combinations = self.generate_smart_combinations()
+
+        # Pre-screen combinations cheaply with Ridge to reduce LGBM calls (except in linear_fast mode)
+        if self.eval_mode != 'linear_fast' and len(combinations) > 5:
+            try:
+                logging.debug("Pre-screening %d combinations with Ridge regression", len(combinations))
+                combinations = self.fast_combination_screen(combinations, history_df, feature_cols, keep_top=min(8, len(combinations)))
+                logging.debug("After Ridge pre-screening: %d combinations remain", len(combinations))
+            except Exception as e:
+                logging.warning(f"Ridge pre-screening failed, using all combinations: {e}")
 
         if self.eval_mode == 'gbm_full':
             combination_results = []

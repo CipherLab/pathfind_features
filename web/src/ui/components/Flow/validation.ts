@@ -35,13 +35,17 @@ export function isValidConnection(
   // Determine payload type for the specific source handle when multiple outputs exist
   const sourceHandleId = conn.sourceHandle || "";
   let srcPayload: PayloadType | undefined = undefined;
-  if (sourceHandleId && sCons.outputs && sCons.outputs.length > 0) {
-    const out = sCons.outputs.find((o) => o.id === sourceHandleId);
-    srcPayload = out?.type;
-  }
-  if (!srcPayload) {
-    srcPayload =
-      sCons.output?.type || (sCons.outputs && sCons.outputs[0]?.type);
+  if (src.data.kind === "file-source") {
+    srcPayload = (src.data.config?.payloadType as PayloadType) || undefined;
+  } else {
+    if (sourceHandleId && sCons.outputs && sCons.outputs.length > 0) {
+      const out = sCons.outputs.find((o) => o.id === sourceHandleId);
+      srcPayload = out?.type;
+    }
+    if (!srcPayload) {
+      srcPayload =
+        sCons.output?.type || (sCons.outputs && sCons.outputs[0]?.type);
+    }
   }
   const targetHandleId = conn.targetHandle || "";
   const expected = tCons.inputs.find((i) => i.id === targetHandleId);

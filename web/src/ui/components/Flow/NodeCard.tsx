@@ -25,6 +25,8 @@ export default function NodeCard(props: NodeProps<FlowNode<NodeData>>) {
   const icon =
     data.kind === 'data-source'
       ? '📁'
+  : data.kind === 'file-source'
+  ? '📦'
       : data.kind === 'feature-selection'
       ? '🧬'
       : data.kind === 'target-discovery'
@@ -129,23 +131,27 @@ export default function NodeCard(props: NodeProps<FlowNode<NodeData>>) {
       {/* Render typed output handles (right). Prefer plural outputs when available */}
       {Array.isArray(cons.outputs) && cons.outputs.length > 0 ? (
         <>
-          {cons.outputs.map((out, idx) => (
-            <div key={out.id} className="flex items-center justify-end" style={{ position: 'absolute', right: 0, top: 16 + idx * 16 }}>
-              <span className="text-xs text-slate-400 mr-2">{out.label}</span>
-              <Handle
-                id={out.id}
-                type="source"
-                position={Position.Right}
-                style={{ ...styleFor(out.type) }}
-                isValidConnection={(conn: any) =>
-                  isValidConnection(
-                    conn as Connection,
-                    getNodes() as unknown as FlowNode<NodeData>[],
-                    getEdges() as unknown as FlowEdge[]
-                  )}
-              />
-            </div>
-          ))}
+          {cons.outputs.map((out, idx) => {
+            // Dynamic override for file-source payload type
+            const type = data.kind === 'file-source' ? (data as any).config?.payloadType || out.type : out.type
+            return (
+              <div key={out.id} className="flex items-center justify-end" style={{ position: 'absolute', right: 0, top: 16 + idx * 16 }}>
+                <span className="text-xs text-slate-400 mr-2">{data.kind === 'file-source' ? String(type) : out.label}</span>
+                <Handle
+                  id={out.id}
+                  type="source"
+                  position={Position.Right}
+                  style={{ ...styleFor(type as PayloadType) }}
+                  isValidConnection={(conn: any) =>
+                    isValidConnection(
+                      conn as Connection,
+                      getNodes() as unknown as FlowNode<NodeData>[],
+                      getEdges() as unknown as FlowEdge[]
+                    )}
+                />
+              </div>
+            )
+          })}
         </>
       ) : (
         cons.output && (

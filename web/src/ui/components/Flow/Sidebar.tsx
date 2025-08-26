@@ -11,6 +11,7 @@ import TrainPanel from './panels/TrainPanel'
 import ValidatePanel from './panels/ValidatePanel'
 import OutputPanel from './panels/OutputPanel'
 import FeatureSourcePanel from './panels/FeatureSourcePanel'
+import FileSourcePanel from './panels/FileSourcePanel'
 
 type Props = {
   nodes: Node<NodeData>[]
@@ -309,6 +310,9 @@ export default function Sidebar({ nodes, selection, edges, onUpdate, onRun, onDe
         <h3 className="text-sm font-semibold text-slate-200 mb-3">⚙️ Configuration</h3>
         {selection.data.kind === 'data-source' && (
           <DataPanel cfg={cfg} updateData={updateData} />
+        )}
+        {selection.data.kind === 'file-source' && (
+          <FileSourcePanel cfg={cfg} updateData={updateData} />
         )}
         {selection.data.kind === 'target-discovery' && (
           <TargetsPanel cfg={cfg} updateData={updateData} />

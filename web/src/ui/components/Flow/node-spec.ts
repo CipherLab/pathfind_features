@@ -61,6 +61,25 @@ export const NodeConstraints: Record<
       "transform",
     ],
   },
+  "file-source": {
+    maxInputs: 0,
+    maxOutputs: 999,
+    inputs: [],
+    // Outputs are dynamic based on chosen payload type; default to PARQUET for visuals
+    outputs: [{ id: "out-file", type: "PARQUET", label: "selected file" }],
+    output: { id: "out-file", type: "PARQUET", label: "selected file" },
+    description:
+      "Emits a chosen file with a declared payload type (parquet, features.json, relationships, targets, etc).",
+    canConnectTo: [
+      "target-discovery",
+      "pathfinding",
+      "feature-engineering",
+      "transform",
+      "train",
+      "validate",
+      "output",
+    ],
+  },
   "feature-selection": {
     maxInputs: 0,
     maxOutputs: 999,
@@ -275,6 +294,11 @@ export const NodePanelConfigs: Record<
   "data-source": {
     outputs: [
       "Emits the configured parquet file path to be shared downstream.",
+    ],
+  },
+  "file-source": {
+    outputs: [
+      "Emits a selected file and type label (parquet, features.json, relationships.json, targets.parquet/json).",
     ],
   },
   "feature-selection": {

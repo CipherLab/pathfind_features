@@ -87,6 +87,19 @@ def main():
         if target not in df.columns:
             raise SystemExit(f'Target column {target} not found in one of the inputs')
 
+    # Drop rows with NaNs in the feature set or target for all datasets
+    base_feats = feats_orig
+    aug_feats = feats_orig + new_feats
+    print('Dropping rows with NaNs in features/target (this may reduce sample counts)')
+    train_base = train_base.dropna(subset=base_feats + [target])
+    val_base = val_base.dropna(subset=base_feats + [target])
+    train_aug = train_aug.dropna(subset=aug_feats + [target])
+    val_aug = val_aug.dropna(subset=aug_feats + [target])
+
+    print('After dropping NaNs:')
+    print(' train_base', len(train_base), 'val_base', len(val_base))
+    print(' train_aug', len(train_aug), 'val_aug', len(val_aug))
+
     lgb_params = {
         'objective': 'regression',
         'metric': 'l2',

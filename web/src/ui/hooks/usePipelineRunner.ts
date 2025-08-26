@@ -282,6 +282,29 @@ export function usePipelineRunner(
             }
             return n;
           });
+        } else if (src.data.kind === "file-source") {
+          updated = ns.map((n) => {
+            if (!downstreamIds.includes(n.id)) return n;
+            const pt = src.data.config?.payloadType as string | undefined;
+            const path = src.data.config?.inputPath as string | undefined;
+            if (!pt || !path) return n;
+            const cfg = { ...(n.data.config || {}) } as any;
+            if (pt === "PARQUET" || pt === "ADAPTIVE_TARGETS_PARQUET") {
+              cfg.inputData = path;
+            } else if (pt === "JSON_ARTIFACT") {
+              // If going into target-discovery, treat as features.json
+              if (n.data.kind === "target-discovery") cfg.featuresJson = path;
+            } else if (pt === "RELATIONSHIPS") {
+              if (n.data.kind === "feature-engineering")
+                cfg.relationshipsJson = path;
+            } else if (pt === "TD_DISCOVERY_META") {
+              if (n.data.kind === "pathfinding") cfg.targetsJson = path;
+            }
+            const status = (
+              n.data.status === "idle" ? "configured" : n.data.status
+            ) as NodeStatus;
+            return { ...n, data: { ...n.data, config: cfg, status } };
+          });
         }
         return updated;
       });

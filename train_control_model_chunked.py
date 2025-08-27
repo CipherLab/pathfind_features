@@ -5,6 +5,7 @@ Validation is a fixed small sample to control memory.
 """
 import argparse
 import pickle
+import json
 from pathlib import Path
 
 import lightgbm as lgb
@@ -147,7 +148,9 @@ def train_chunked(train_path: str, valid_path: str, target_col: str, out_path: s
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, 'wb') as f:
-        pickle.dump({'model': booster, 'features': features}, f)
+        pickle.dump(booster, f)
+    with open(Path(out_path).with_suffix('.json'), 'w') as f:
+        json.dump(features, f)
 
 
 def main():

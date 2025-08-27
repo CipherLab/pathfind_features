@@ -75,7 +75,7 @@ def train_chunked(train_path: str, valid_path: str, target_col: str, out_path: s
 
     # Validation sample
     Xv, yv = read_val_sample(valid_path, features, target_col, val_rows)
-    valid_set = lgb.Dataset(Xv, label=yv, free_raw_data=True)
+    valid_set = lgb.Dataset(Xv, label=yv, free_raw_data=False)
 
     params = {
         'objective': 'regression',
@@ -113,7 +113,9 @@ def train_chunked(train_path: str, valid_path: str, target_col: str, out_path: s
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, 'wb') as f:
-        pickle.dump({'model': booster, 'features': features}, f)
+        pickle.dump(booster, f)
+    with open(Path(out_path).with_suffix('.json'), 'w') as f:
+        json.dump(features, f)
 
 
 def main():

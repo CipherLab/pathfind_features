@@ -2,6 +2,7 @@
 import argparse
 import csv
 import pickle
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -22,9 +23,10 @@ def main():
     args = ap.parse_args()
 
     with open(args.model, 'rb') as f:
-        bundle = pickle.load(f)
-    model = bundle['model']
-    feats = bundle['features']
+        model = pickle.load(f)
+    features_path = args.model.replace('.pkl', '_features.json')
+    with open(features_path, 'r') as f:
+        feats = json.load(f)
 
     parquet_file = pq.ParquetFile(args.data)
     available_cols = set(parquet_file.schema.names)

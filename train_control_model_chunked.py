@@ -14,6 +14,24 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 
+# Callable wrapper for Numerai compatibility
+class CallableModel:
+    def __init__(self, booster):
+        self.booster = booster
+    
+    def __call__(self, *args, **kwargs):
+        return self.booster.predict(*args, **kwargs)
+    
+    def predict(self, *args, **kwargs):
+        return self.booster.predict(*args, **kwargs)
+    
+    def __getattr__(self, name):
+        # Avoid recursion during unpickling
+        if name == 'booster' or not hasattr(self, 'booster'):
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        return getattr(self.booster, name)
+
+
 def select_features(pf: pq.ParquetFile, features_json: str | None) -> list[str]:
     cols = pf.schema.names
     if features_json and Path(features_json).exists():
@@ -147,8 +165,11 @@ def train_chunked(train_path: str, valid_path: str, target_col: str, out_path: s
         built_rounds += rounds
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    
+    callable_model = CallableModel(booster)
+    
     with open(out_path, 'wb') as f:
-        pickle.dump(booster, f)
+        pickle.dump(callable_model, f)
     with open(Path(out_path).with_suffix('.json'), 'w') as f:
         json.dump(features, f)
 

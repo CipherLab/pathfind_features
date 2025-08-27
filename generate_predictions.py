@@ -9,6 +9,23 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 
+class CallableModel:
+    def __init__(self, booster):
+        self.booster = booster
+    
+    def __call__(self, *args, **kwargs):
+        return self.booster.predict(*args, **kwargs)
+    
+    def predict(self, *args, **kwargs):
+        return self.booster.predict(*args, **kwargs)
+    
+    def __getattr__(self, name):
+        # Avoid recursion during unpickling
+        if name == 'booster' or not hasattr(self, 'booster'):
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        return getattr(self.booster, name)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--model', required=True)
@@ -37,16 +54,19 @@ def main():
     output_path = Path(args.output)
     with output_path.open('w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['prediction'])
+        writer.writerow(['id', 'prediction'])
+        row_id = 0
         for batch in parquet_file.iter_batches(columns=feats, batch_size=args.batch_size):
             df = batch.to_pandas()
             preds = model.predict(df[feats])
-            # Avoid creating an intermediate list of lists
+            # Write predictions with sequential IDs
             try:
-                writer.writerows(preds.reshape(-1, 1))
-            except AttributeError:
                 for p in preds:
-                    writer.writerow([p])
+                    writer.writerow([row_id, p])
+                    row_id += 1
+            except TypeError:
+                writer.writerow([row_id, preds])
+                row_id += 1
     print(f"Predictions written to {args.output}")
 
 

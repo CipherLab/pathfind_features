@@ -12,6 +12,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
+from tests import setup_script_output, get_output_path, initialize_script_output, add_output_dir_arguments
 
 
 # Callable wrapper for Numerai compatibility
@@ -188,14 +189,24 @@ def main():
     ap.add_argument('--num-leaves', type=int, default=64)
     ap.add_argument('--learning-rate', type=float, default=0.05)
     ap.add_argument('--seed', type=int, default=42)
+    add_output_dir_arguments(ap)
     args = ap.parse_args()
+
+    # Set up output directory
+    script_name = "train_control_model_chunked"
+    output_dir = initialize_script_output(script_name, args)
+    print(f"Logs and results will be saved to: {output_dir}")
+
+    # Use output from tests directory, but keep original filename
+    original_model_name = Path(args.output_model).name
+    model_output_path = get_output_path(output_dir, original_model_name)
 
     train_chunked(
         args.train_data,
         args.validation_data,
-    args.target_col,
-        args.output_model,
-    features_json=args.features_json,
+        args.target_col,
+        str(model_output_path),
+        features_json=args.features_json,
         chunk_rows=args.chunk_rows,
         val_rows=args.val_rows,
         total_rounds=args.total_rounds,
@@ -204,7 +215,8 @@ def main():
         learning_rate=args.learning_rate,
         seed=args.seed,
     )
-    print(f"Control (chunked) model saved to {args.output_model}")
+    print(f"Control (chunked) model saved to {model_output_path}")
+    print(f"Output directory: {output_dir}")
 
 
 if __name__ == '__main__':

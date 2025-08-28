@@ -4,6 +4,7 @@ import csv
 import pickle
 import json
 from pathlib import Path
+from tests import setup_script_output, get_output_path, initialize_script_output, add_output_dir_arguments
 
 import pandas as pd
 import pyarrow.parquet as pq
@@ -37,7 +38,13 @@ def main():
         default=100_000,
         help='number of rows to process per batch',
     )
+    add_output_dir_arguments(ap)
     args = ap.parse_args()
+
+    # Set up output directory
+    script_name = "generate_predictions"
+    output_dir = initialize_script_output(script_name, args)
+    print(f"Logs and results will be saved to: {output_dir}")
 
     with open(args.model, 'rb') as f:
         model = pickle.load(f)
@@ -51,7 +58,10 @@ def main():
     if missing:
         raise ValueError(f"Missing features in data: {missing[:10]}")
 
-    output_path = Path(args.output)
+    # Use output from tests directory, but keep original filename
+    original_filename = Path(args.output).name
+    output_path = get_output_path(output_dir, original_filename)
+
     with output_path.open('w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(['id', 'prediction'])
@@ -67,7 +77,8 @@ def main():
             except TypeError:
                 writer.writerow([row_id, preds])
                 row_id += 1
-    print(f"Predictions written to {args.output}")
+    print(f"Predictions written to {output_path}")
+    print(f"Output directory: {output_dir}")
 
 
 if __name__ == '__main__':

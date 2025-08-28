@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import lightgbm as lgb
 import pyarrow.parquet as pq
+from tests import setup_script_output, get_output_path, initialize_script_output, add_output_dir_arguments
 
 class CallableModel:
     def __init__(self, booster):
@@ -219,8 +220,14 @@ def main():
     parser.add_argument('--ensemble-type', choices=['diverse', 'bootstrap', 'feature_subset', 'mixed'],
                        default='mixed', help='Type of ensemble to create')
     parser.add_argument('--n-models', type=int, default=5, help='Number of base models')
+    add_output_dir_arguments(parser)
 
     args = parser.parse_args()
+
+    # Set up output directory
+    script_name = "ensemble_training"
+    output_dir = initialize_script_output(script_name, args)
+    print(f"Logs and results will be saved to: {output_dir}")
 
     # Load features
     with open(args.features_json, 'r') as f:
@@ -268,9 +275,12 @@ def main():
     print(f"Sharpe Ratio: {metrics['sharpe_ratio']:.4f}")
     print(f"Number of models: {len(models)}")
 
-    # Save ensemble
-    Path(args.output_model).parent.mkdir(parents=True, exist_ok=True)
-    with open(args.output_model, 'wb') as f:
+    # Save ensemble to tests directory
+    original_model_name = Path(args.output_model).name
+    model_output_path = get_output_path(output_dir, original_model_name)
+    info_output_path = get_output_path(output_dir, Path(args.output_model).stem + '_info.json')
+
+    with open(model_output_path, 'wb') as f:
         pickle.dump(ensemble, f)
 
     # Save ensemble info
@@ -281,10 +291,12 @@ def main():
         'features': features
     }
 
-    with open(Path(args.output_model).with_suffix('.json'), 'w') as f:
+    with open(info_output_path, 'w') as f:
         json.dump(ensemble_info, f, indent=2, default=str)
 
-    print(f"Ensemble saved to {args.output_model}")
+    print(f"Ensemble saved to {model_output_path}")
+    print(f"Ensemble info saved to {info_output_path}")
+    print(f"Output directory: {output_dir}")
 
 if __name__ == '__main__':
     main()

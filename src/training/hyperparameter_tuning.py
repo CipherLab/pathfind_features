@@ -15,6 +15,7 @@ from search_utils import (
     get_param_grids, get_base_params, get_focused_param_sets,
     generate_focused_params, save_results
 )
+from tests import setup_script_output, get_output_path, initialize_script_output, add_output_dir_arguments
 
 
 def hyperparameter_search(train_path: str, val_path: str, features_json: str,
@@ -144,20 +145,28 @@ def main():
     parser.add_argument('--era-range', help='Era range for training data (e.g., "MAX-200:MAX-75")')
     parser.add_argument('--speed-mode', choices=['fast', 'balanced', 'thorough'], default='fast',
                        help='Speed mode: fast=quick tuning, balanced=moderate, thorough=detailed')
+    add_output_dir_arguments(parser)
 
     args = parser.parse_args()
+
+    # Set up output directory
+    script_name = "hyperparameter_tuning"
+    output_dir = initialize_script_output(script_name, args)
+    print(f"Logs and results will be saved to: {output_dir}")
 
     hyperparameter_search(
         args.train_data,
         args.validation_data,
         args.features_json,
         args.target_col,
-        args.output_dir,
+        str(output_dir),
         args.search_type,
         era_range=args.era_range,
         speed_mode=args.speed_mode,
         n_iterations=args.n_iterations
     )
+
+    print(f"Hyperparameter tuning complete. Results saved to: {output_dir}")
 
 
 if __name__ == '__main__':

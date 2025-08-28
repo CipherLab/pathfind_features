@@ -15,6 +15,7 @@ from pathlib import Path
 from collections import defaultdict
 from bootstrap_pipeline.bootstrap.target_discovery import WalkForwardTargetDiscovery
 from bootstrap_pipeline.utils.utils import reduce_mem_usage
+from tests import setup_script_output, setup_logging_with_output_dir
 
 # Bump this when changing discovery/caching behavior to invalidate old cache entries
 ALGO_VERSION = "td-v1.4"
@@ -76,13 +77,15 @@ def run(
     Performs the Target Bootstrap Discovery stage.
     This function contains the core logic from the original fast_target_bootstrap.py.
     """
-    run_dir = Path(output_file).parent
-    log_file = run_dir / "logs.log"
-    setup_logging(log_file)
+    # Set up output directory in tests folder
+    script_name = "step_01_target_discovery"
+    output_dir = setup_script_output(script_name)
+    setup_logging_with_output_dir(output_dir, "logs.log")
 
     logging.info(f"Running Target Bootstrap Discovery (algo={ALGO_VERSION})...")
     logging.info(f"Input: {input_file}")
     logging.info(f"Output: {output_file}")
+    logging.info(f"Logs and results will be saved to: {output_dir}")
 
     if not os.path.exists(input_file):
         raise FileNotFoundError(f"Input parquet file not found: {input_file}")

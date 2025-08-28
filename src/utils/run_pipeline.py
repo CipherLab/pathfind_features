@@ -8,6 +8,7 @@ import sys
 from datetime import datetime
 import time
 import shutil
+from tests import setup_script_output, get_output_path, initialize_script_output, add_output_dir_arguments
 
 # Ensure the bootstrap_pipeline module is in the Python path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))

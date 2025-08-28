@@ -3,6 +3,7 @@
 import logging
 import pandas as pd
 from scipy.stats import pearsonr
+from tests import setup_script_output, get_output_path, initialize_script_output, add_output_dir_arguments
 
 def run_analysis(run_dir: str, validation_data: str, control_predictions: str, **kwargs):
     logging.info("Running performance analysis...")

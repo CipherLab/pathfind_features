@@ -4,6 +4,7 @@ import logging
 import random
 import numpy as np
 from collections import defaultdict
+from tests import setup_script_output, get_output_path, initialize_script_output, add_output_dir_arguments
 
 class CreativePathfindingDiscovery:
     """

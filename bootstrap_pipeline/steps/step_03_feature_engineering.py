@@ -9,6 +9,7 @@ import json
 import sys
 from pathlib import Path
 from ..utils.utils import reduce_mem_usage
+from tests import setup_script_output, get_output_path, initialize_script_output, add_output_dir_arguments
 
 
 def setup_logging(log_file: str | os.PathLike):

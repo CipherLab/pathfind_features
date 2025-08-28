@@ -3,6 +3,7 @@ import json
 import hashlib
 import shutil
 import logging
+from tests import setup_script_output, get_output_path, initialize_script_output, add_output_dir_arguments
 
 
 def _file_fingerprint(path: str):

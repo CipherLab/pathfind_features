@@ -1,6 +1,7 @@
 import argparse
 import shutil
 from pathlib import Path
+from tests import setup_script_output, get_output_path, initialize_script_output, add_output_dir_arguments
 
 def main():
     parser = argparse.ArgumentParser()

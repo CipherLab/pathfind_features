@@ -12,119 +12,47 @@ import lightgbm as lgb
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 import warnings
 warnings.filterwarnings('ignore')
 
 
-def load_out_of_sample_data_chunked(data_file: str, features_file: str, weights_file: Optional[str] = None, 
-                                   chunk_size: int = 100000) -> Tuple[pd.DataFrame, pd.Series, pd.Series]:
-    """Load out-of-sample data using chunked processing for memory efficiency."""
-    print(f"Loading out-of-sample data from {data_file} using chunks...")
+def load_out_of_sample_data(data_file: str, features_file: str) -> Tuple[pd.DataFrame, pd.Series, pd.Series]:
+    """Load out-of-sample data for generalization testing."""
+    print(f"Loading out-of-sample data from {data_file}...")
+
+    # Load data
+    pf = pq.ParquetFile(data_file)
+    df = pf.read().to_pandas()
 
     # Load features
     with open(features_file, 'r') as f:
         features = json.load(f)
 
-    pf = pq.ParquetFile(data_file)
-    
-    # Check if adaptive_target exists in schema
-    schema_cols = pf.schema.names
-    has_adaptive = 'adaptive_target' in schema_cols
-    
-    if not has_adaptive and not weights_file:
-        raise ValueError(f"adaptive_target not found in {data_file} and no weights file provided")
+    print(f"Dataset: {len(df):,} rows, {len(features)} features")
 
-    # Get target columns for adaptive target creation
-    target_cols = [col for col in schema_cols if col.startswith('target')]
-    
-    # Load weights if needed
-    weights_data = None
-    if not has_adaptive and weights_file and os.path.exists(weights_file):
-        with open(weights_file, 'r') as f:
-            weights_data = json.load(f)
-        print(f"Loaded weights for {len(weights_data)} eras")
+    # Prepare data
+    X = df[features].astype('float32')
+    y = df['adaptive_target'].astype('float32')
+    era_series = df['era']
 
-    # Process in chunks
-    all_X = []
-    all_y = []
-    all_era = []
-    
-    total_rows = 0
-    needed_cols = features + ['era']
-    if has_adaptive:
-        needed_cols.append('adaptive_target')
-    else:
-        needed_cols.extend(target_cols)
-    
-    for batch in pf.iter_batches(columns=needed_cols, batch_size=chunk_size):
-        df = batch.to_pandas()
-        
-        # Create adaptive targets if needed
-        if not has_adaptive and weights_data:
-            adaptive_targets = []
-            for _, row in df.iterrows():
-                era = row['era']
-                if str(era) in weights_data:
-                    weights = weights_data[str(era)]
-                elif era in weights_data:
-                    weights = weights_data[era]
-                else:
-                    # Use equal weights if era not found
-                    weights = [1.0/len(target_cols)] * len(target_cols)
+    # Filter out NaN values
+    valid_mask = ~(pd.isna(y) | pd.isna(X).any(axis=1))
+    if era_series is not None:
+        valid_mask &= ~pd.isna(era_series)
 
-                # Calculate weighted target
-                target_values = [row[col] for col in target_cols]
-                adaptive_target = sum(w * t for w, t in zip(weights, target_values) if pd.notna(t))
-                adaptive_targets.append(adaptive_target)
-            
-            df['adaptive_target'] = adaptive_targets
-        
-        # Prepare data
-        X_chunk = df[features].astype('float32')
-        y_chunk = df['adaptive_target'].astype('float32')
-        era_chunk = df['era']
-        
-        # Filter out NaN values
-        valid_mask = ~(pd.isna(y_chunk) | pd.isna(X_chunk).any(axis=1))
-        if era_chunk is not None:
-            valid_mask &= ~pd.isna(era_chunk)
-        
-        all_X.append(X_chunk[valid_mask])
-        all_y.append(y_chunk[valid_mask])
-        all_era.append(era_chunk[valid_mask])
-        
-        total_rows += len(df)
-        if total_rows % 500000 == 0:
-            print(f"Processed {total_rows:,} rows...")
+    X_clean = X[valid_mask]
+    y_clean = y[valid_mask]
+    era_clean = era_series[valid_mask]
 
-    # Concatenate all chunks
-    X_clean = pd.concat(all_X, ignore_index=True)
-    
-    # Concatenate Series properly
-    if all_y:
-        y_clean = pd.concat(all_y, ignore_index=True)
-        if isinstance(y_clean, pd.DataFrame):
-            y_clean = y_clean.iloc[:, 0]  # Take first column if DataFrame
-    else:
-        y_clean = pd.Series([], dtype='float32', name='adaptive_target')
-    
-    if all_era:
-        era_clean = pd.concat(all_era, ignore_index=True)
-        if isinstance(era_clean, pd.DataFrame):
-            era_clean = era_clean.iloc[:, 0]  # Take first column if DataFrame
-    else:
-        era_clean = pd.Series([], dtype='object', name='era')
-    
-    print(f"Dataset: {len(X_clean):,} rows, {len(features)} features")
-    if len(era_clean) > 0:
-        print(f"Era range: {era_clean.min()} to {era_clean.max()}")
+    print(f"After cleaning: {len(X_clean):,} rows ({len(X_clean)/len(df)*100:.1f}%)")
+    print(f"Era range: {era_clean.min()} to {era_clean.max()}")
 
     return X_clean, y_clean, era_clean
 
 
 def train_on_historical_test_on_future(train_file: str, test_file: str, features_file: str,
-                                       params: Dict, weights_file: Optional[str] = None) -> Dict:
+                                       params: Dict) -> Dict:
     """Train on historical data, test on future data."""
     print("\n" + "=" * 60)
     print("TRAIN ON HISTORICAL, TEST ON FUTURE")
@@ -132,11 +60,11 @@ def train_on_historical_test_on_future(train_file: str, test_file: str, features
 
     # Load training data (historical)
     print("Loading historical training data...")
-    X_train, y_train, era_train = load_out_of_sample_data_chunked(train_file, features_file, weights_file)
+    X_train, y_train, era_train = load_out_of_sample_data(train_file, features_file)
 
     # Load test data (future)
     print("Loading future test data...")
-    X_test, y_test, era_test = load_out_of_sample_data_chunked(test_file, features_file, weights_file)
+    X_test, y_test, era_test = load_out_of_sample_data(test_file, features_file)
 
     # Check era separation
     train_eras = set(era_train.unique())
@@ -164,22 +92,12 @@ def train_on_historical_test_on_future(train_file: str, test_file: str, features
 
     # Test on future data
     print("Testing on future data...")
-    
-    # Make predictions in chunks to handle large datasets
-    predictions = []
-    chunk_size = 100000
-    
-    for i in range(0, len(X_test), chunk_size):
-        X_chunk = X_test.iloc[i:i+chunk_size]
-        chunk_preds = model.predict(X_chunk)
-        
-        # Convert to numpy array and then to list
-        chunk_preds = np.asarray(chunk_preds).flatten()
-        predictions.extend(chunk_preds.tolist())
-    
-    test_preds = np.array(predictions)
-    
-    # Calculate overall correlation
+    test_preds = model.predict(X_test)
+
+    # Ensure predictions are numpy array
+    test_preds = np.asarray(test_preds).flatten()
+
+    # Calculate performance metrics
     overall_corr, _ = spearmanr(y_test, test_preds)
 
     # Era-by-era correlations
@@ -220,7 +138,7 @@ def train_on_historical_test_on_future(train_file: str, test_file: str, features
     return results
 
 
-def run_comprehensive_oos_test(params_file: str, features_file: str, weights_file: Optional[str] = None) -> Dict:
+def run_comprehensive_oos_test(params_file: str, features_file: str) -> Dict:
     """Run comprehensive out-of-sample testing across different time periods."""
     print("=" * 80)
     print("COMPREHENSIVE OUT-OF-SAMPLE TESTING")
@@ -233,13 +151,13 @@ def run_comprehensive_oos_test(params_file: str, features_file: str, weights_fil
     # Define test scenarios
     test_scenarios = [
         {
-            "name": "Adaptive Train vs Validation",
-            "train": "v5.0/train_with_adaptive.parquet",
-            "test": "pipeline_runs/my_experiment/01_adaptive_targets_validation.parquet"
+            "name": "Historical vs Recent",
+            "train": "v5.0/train.parquet",
+            "test": "v5.0/validation.parquet"
         },
         {
-            "name": "Adaptive Train vs Live",
-            "train": "v5.0/train_with_adaptive.parquet",
+            "name": "Train vs Live",
+            "train": "v5.0/train.parquet",
             "test": "v5.0/live.parquet"
         }
     ]
@@ -259,7 +177,7 @@ def run_comprehensive_oos_test(params_file: str, features_file: str, weights_fil
 
         # Run test
         results = train_on_historical_test_on_future(
-            train_file, test_file, features_file, params, weights_file
+            train_file, test_file, features_file, params
         )
 
         if "error" in results:
@@ -333,7 +251,6 @@ def main():
     """Main function to run out-of-sample testing."""
     params_file = "hyperparameter_tuning_optimized/best_params_sharpe.json"
     features_file = "pipeline_runs/my_experiment/adaptive_only_model.json"
-    weights_file = "v5.0/weights_by_era_full.json"
 
     # Check if files exist
     if not os.path.exists(params_file):
@@ -344,12 +261,8 @@ def main():
         print(f"❌ Error: {features_file} not found!")
         return
 
-    if not os.path.exists(weights_file):
-        print(f"⚠️  Warning: {weights_file} not found - will skip adaptive target creation")
-        weights_file = None
-
     # Run comprehensive testing
-    results = run_comprehensive_oos_test(params_file, features_file, weights_file)
+    results = run_comprehensive_oos_test(params_file, features_file)
 
     # Print summary
     print_oos_summary(results)

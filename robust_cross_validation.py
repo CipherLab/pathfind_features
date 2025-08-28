@@ -111,7 +111,7 @@ def calculate_realistic_sharpe(era_correlations: List[float], transaction_cost_b
     # Assume correlation roughly translates to returns, and TC reduces Sharpe
     assumed_volatility = 0.15  # 15% annual volatility
     tc_impact = transaction_cost_bps / 10000 / assumed_volatility  # Convert bps to Sharpe reduction
-    sharpe_with_tc = np.maximum(0.0, sharpe - tc_impact)  # Can't go below 0
+    sharpe_with_tc = max(0, sharpe - tc_impact)  # Can't go below 0
 
     return {
         "sharpe_ratio": sharpe,
@@ -133,13 +133,10 @@ def train_and_evaluate_fold(X_train: pd.DataFrame, y_train: pd.Series,
     lgb_params['metric'] = 'l2'
     lgb_params['seed'] = 42
 
-    model = lgb.train(lgb_params, train_set, num_boost_round=200)
+    model = lgb.train(lgb_params, train_set, num_boost_round=200, verbose_eval=False)
 
     # Make predictions
     val_preds = model.predict(X_val)
-
-    # Ensure predictions are numpy array
-    val_preds = np.asarray(val_preds).flatten()
 
     # Calculate overall correlation
     overall_corr, _ = spearmanr(y_val, val_preds)
@@ -231,15 +228,17 @@ def print_validation_summary(results: Dict):
     print("CROSS-VALIDATION SUMMARY")
     print("=" * 80)
 
-    print("\n📊 PERFORMANCE METRICS:")
-    print(f"  Mean correlation: {results['mean_overall_correlation']:.4f}")
-    print(f"  Std correlation: {results['std_overall_correlation']:.4f}")
-    print(f"  Mean Sharpe ratio: {results['mean_sharpe_ratio']:.2f}")
-    print(f"  Std Sharpe ratio: {results['std_sharpe_ratio']:.2f}")
-    print(f"  Mean Sharpe with TC: {results['mean_sharpe_with_tc']:.2f}")
-    print(f"  Std Sharpe with TC: {results['std_sharpe_with_tc']:.2f}")
+    print("
+📊 PERFORMANCE METRICS:")
+    print(".4f")
+    print(".4f")
+    print(".2f")
+    print(".2f")
+    print(".2f")
+    print(".2f")
 
-    print("\n🔍 INTERPRETATION:")
+    print("
+🔍 INTERPRETATION:")
 
     mean_sharpe = results['mean_sharpe_with_tc']
     if mean_sharpe > 2.0:
@@ -251,12 +250,14 @@ def print_validation_summary(results: Dict):
     else:
         print(f"  ❌ POOR: Sharpe {mean_sharpe:.1f} (significant issues)")
 
-    print("\n📈 FOLD-BY-FOLD RESULTS:")
+    print("
+📈 FOLD-BY-FOLD RESULTS:")
     for i, fold in enumerate(results['fold_results']):
         print(f"  Fold {i+1}: Corr={fold['overall_correlation']:.3f}, "
               f"Sharpe={fold['sharpe_with_tc']:.2f}")
 
-    print("\n💡 RECOMMENDATIONS:")
+    print("
+💡 RECOMMENDATIONS:")
 
     if results['std_sharpe_with_tc'] > 0.5:
         print("  ⚠️  HIGH VARIABILITY: Consider model regularization")

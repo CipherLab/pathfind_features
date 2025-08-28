@@ -1,0 +1,13 @@
+{
+  "num_leaves": 15,
+  "learning_rate": 0.008,
+  "feature_fraction": 1.0,
+  "bagging_fraction": 0.8,
+  "max_depth": "-1",
+  "min_child_samples": 20,
+  "objective": "regression",
+  "metric": "l2",
+  "reg_alpha": 0.5,
+  "reg_lambda": 0.5,
+  "seed": 42
+}

@@ -1,0 +1,172 @@
+[
+  {
+    "correlation": 0.12959573048103923,
+    "sharpe_ratio": 3.808626679337066,
+    "params": {
+      "num_leaves": 15,
+      "learning_rate": 0.012,
+      "feature_fraction": 0.9,
+      "bagging_fraction": 0.9,
+      "max_depth": -1,
+      "min_child_samples": 20,
+      "objective": "regression",
+      "metric": "l2",
+      "seed": 42
+    },
+    "sample_id": 0
+  },
+  {
+    "correlation": 0.12274413917460646,
+    "sharpe_ratio": 3.2900251350360583,
+    "params": {
+      "num_leaves": 15,
+      "learning_rate": 0.008,
+      "feature_fraction": 1.0,
+      "bagging_fraction": 0.8,
+      "max_depth": "-1",
+      "min_child_samples": 20,
+      "objective": "regression",
+      "metric": "l2",
+      "reg_alpha": 0.5,
+      "reg_lambda": 0.5,
+      "seed": 42
+    },
+    "sample_id": 1
+  },
+  {
+    "correlation": 0.1278693974481133,
+    "sharpe_ratio": 3.514631848195685,
+    "params": {
+      "num_leaves": 31,
+      "learning_rate": 0.008,
+      "feature_fraction": 0.8,
+      "bagging_fraction": 1.0,
+      "max_depth": -1,
+      "min_child_samples": 20,
+      "objective": "regression",
+      "metric": "l2",
+      "reg_alpha": 0.5,
+      "reg_lambda": 0.0,
+      "seed": 42
+    },
+    "sample_id": 2
+  },
+  {
+    "correlation": 0.12969288611092547,
+    "sharpe_ratio": 3.8368906238430434,
+    "params": {
+      "num_leaves": 15,
+      "learning_rate": 0.012,
+      "feature_fraction": 0.7,
+      "bagging_fraction": 1.0,
+      "max_depth": "-1",
+      "min_child_samples": 20,
+      "objective": "regression",
+      "metric": "l2",
+      "seed": 42
+    },
+    "sample_id": 3
+  },
+  {
+    "correlation": 0.13281006429992723,
+    "sharpe_ratio": 3.770424575325949,
+    "params": {
+      "num_leaves": 31,
+      "learning_rate": 0.01,
+      "feature_fraction": 0.7,
+      "bagging_fraction": 0.7,
+      "max_depth": "10",
+      "min_child_samples": 20,
+      "objective": "regression",
+      "metric": "l2",
+      "reg_alpha": 0.0,
+      "reg_lambda": 0.0,
+      "seed": 42
+    },
+    "sample_id": 4
+  },
+  {
+    "correlation": 0.12969288611092547,
+    "sharpe_ratio": 3.8368906238430434,
+    "params": {
+      "num_leaves": 15,
+      "learning_rate": 0.012,
+      "feature_fraction": 0.7,
+      "bagging_fraction": 1.0,
+      "max_depth": -1,
+      "min_child_samples": 20,
+      "objective": "regression",
+      "metric": "l2",
+      "seed": 42
+    },
+    "sample_id": 5
+  },
+  {
+    "correlation": 0.12515258484233854,
+    "sharpe_ratio": 3.4171608786005607,
+    "params": {
+      "num_leaves": 31,
+      "learning_rate": 0.008,
+      "feature_fraction": 0.7,
+      "bagging_fraction": 1.0,
+      "max_depth": -1,
+      "min_child_samples": 20,
+      "objective": "regression",
+      "metric": "l2",
+      "reg_alpha": 0.5,
+      "reg_lambda": 0.0,
+      "seed": 42
+    },
+    "sample_id": 6
+  },
+  {
+    "correlation": 0.13469091434931432,
+    "sharpe_ratio": 3.95213249304874,
+    "params": {
+      "num_leaves": 31,
+      "learning_rate": 0.012,
+      "feature_fraction": 0.7,
+      "bagging_fraction": 0.8,
+      "max_depth": -1,
+      "min_child_samples": 20,
+      "objective": "regression",
+      "metric": "l2",
+      "seed": 42
+    },
+    "sample_id": 7
+  },
+  {
+    "correlation": 0.12274413917460646,
+    "sharpe_ratio": 3.2900251350360583,
+    "params": {
+      "num_leaves": 15,
+      "learning_rate": 0.008,
+      "feature_fraction": 1.0,
+      "bagging_fraction": 0.8,
+      "max_depth": "-1",
+      "min_child_samples": 20,
+      "objective": "regression",
+      "metric": "l2",
+      "reg_alpha": 0.5,
+      "reg_lambda": 0.5,
+      "seed": 42
+    },
+    "sample_id": 8
+  },
+  {
+    "correlation": 0.13157151731709096,
+    "sharpe_ratio": 3.948274186749131,
+    "params": {
+      "num_leaves": 31,
+      "learning_rate": 0.012,
+      "feature_fraction": 0.8,
+      "bagging_fraction": 0.7,
+      "max_depth": -1,
+      "min_child_samples": 20,
+      "objective": "regression",
+      "metric": "l2",
+      "seed": 42
+    },
+    "sample_id": 9
+  }
+]

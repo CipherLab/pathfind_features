@@ -14,6 +14,10 @@ import step_01_target_discovery
 import step_02_pathfinding
 import step_03_feature_engineering
 import performance as analysis
+import validation_framework
+import feature_stability_engine
+import train_control_model_chunked
+import train_experimental_model_chunked
 from cache import compute_hash, stage_cache_lookup, stage_cache_store, materialize_cached_artifacts
 import random
 import numpy as np
@@ -149,6 +153,10 @@ def main():
 
     if args.command == "analyze":
         analyze_run(args)
+        return
+
+    if args.command == "enhanced_run":
+        enhanced_run_pipeline(args)
         return
 
     # --- Pipeline Execution Logic (for 'run' command) ---
@@ -466,5 +474,214 @@ def analyze_run(args):
     )
 
 
-if __name__ == "__main__":
-    main()
+def enhanced_run_pipeline(args):
+    """Execute the complete enhanced pipeline with validation, stability analysis, and ensemble training."""
+    
+    # Clean up __pycache__ directories
+    for root, dirs, files in os.walk(os.path.dirname(os.path.abspath(__file__))):
+        if '__pycache__' in dirs:
+            shutil.rmtree(os.path.join(root, '__pycache__'))
+
+    # 1. Create Run Directory
+    if args.experiment_name:
+        run_dir = os.path.join("pipeline_runs", args.experiment_name)
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = os.path.join("pipeline_runs", f"enhanced_run_{timestamp}")
+    os.makedirs(run_dir, exist_ok=True)
+
+    # 2. Setup Logging
+    setup_logging(os.path.join(run_dir, "logs.log"))
+    
+    logging.info(f"Starting enhanced pipeline run in: {run_dir}")
+
+    # 3. Initialize Run Summary
+    run_summary = {
+        "run_id": os.path.basename(run_dir),
+        "start_time": datetime.now().isoformat(),
+        "status": "RUNNING",
+        "parameters": vars(args),
+        "steps": {},
+        "artifacts": {}
+    }
+    save_summary(run_summary, run_dir)
+
+    # Seed
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+
+    try:
+        # --- STAGE 1: Target Bootstrap Discovery ---
+        stage1_output = os.path.join(run_dir, "01_adaptive_targets.parquet")
+        stage1_discovery = os.path.join(run_dir, "01_target_discovery.json")
+        
+        if not os.path.exists(stage1_output) or args.force:
+            logging.info("="*20 + " STAGE 1: Target Bootstrap Discovery " + "="*20)
+            start_time = time.time()
+            step_01_target_discovery.run(
+                input_file=args.input_data,
+                features_json_file=args.features_json,
+                output_file=stage1_output,
+                discovery_file=stage1_discovery,
+                skip_walk_forward=args.skip_walk_forward,
+                max_eras=_resolve_smoke_value(args, 'smoke_max_eras', default_if_smoke=60),
+                row_limit=_resolve_smoke_value(args, 'smoke_row_limit', default_if_smoke=100_000),
+                target_limit=_resolve_smoke_value(args, 'smoke_target_limit', default_if_smoke=8)
+            )
+            duration = time.time() - start_time
+            update_summary_step(run_summary, "target_discovery", duration, {"adaptive_targets": stage1_output, "discovery_json": stage1_discovery})
+        else:
+            logging.info("="*20 + " STAGE 1: SKIPPED (Cached) " + "="*20)
+            update_summary_step(run_summary, "target_discovery", 0, {"adaptive_targets": stage1_output, "discovery_json": stage1_discovery}, status="CACHED")
+
+        # --- STAGE 2: Creative Pathfinding Discovery ---
+        stage2_output = os.path.join(run_dir, "02_discovered_relationships.json")
+        
+        if not args.disable_pathfinding and (not os.path.exists(stage2_output) or args.force):
+            logging.info("="*20 + " STAGE 2: Creative Pathfinding Discovery " + "="*20)
+            start_time = time.time()
+            step_02_pathfinding.run(
+                input_file=stage1_output,
+                target_col="adaptive_target",
+                output_relationships_file=stage2_output,
+                yolo_mode=args.yolo_mode,
+                feature_limit=_resolve_smoke_value(args, 'smoke_feature_limit', default_if_smoke=300),
+                row_limit=_resolve_smoke_value(args, 'smoke_row_limit', default_if_smoke=100_000),
+                debug=args.pf_debug,
+                debug_every_rows=getattr(args, 'pf_debug_every_rows', 10000),
+            )
+            duration = time.time() - start_time
+            update_summary_step(run_summary, "pathfinding", duration, {"relationships_json": stage2_output})
+        elif not args.disable_pathfinding:
+            logging.info("="*20 + " STAGE 2: SKIPPED (Cached) " + "="*20)
+            update_summary_step(run_summary, "pathfinding", 0, {"relationships_json": stage2_output}, status="CACHED")
+
+        # --- STAGE 3: Feature Engineering ---
+        stage3_output = os.path.join(run_dir, "03_enhanced_features.parquet")
+        
+        if not args.disable_pathfinding and (not os.path.exists(stage3_output) or args.force):
+            logging.info("="*20 + " STAGE 3: Feature Engineering " + "="*20)
+            start_time = time.time()
+            step_03_feature_engineering.run(
+                input_file=stage1_output,
+                relationships_file=stage2_output,
+                output_file=stage3_output,
+                max_features=args.max_new_features,
+                yolo_mode=args.yolo_mode,
+                row_limit=_resolve_smoke_value(args, 'smoke_row_limit', default_if_smoke=100_000)
+            )
+            duration = time.time() - start_time
+            merged_fjson = _write_merged_features_json(run_dir, args.features_json, os.path.join(run_dir, 'new_feature_names.json'))
+            update_summary_step(run_summary, "feature_engineering", duration, {"enhanced_data": stage3_output, "new_features_list": os.path.join(run_dir, 'new_feature_names.json'), "features_json": merged_fjson})
+        elif not args.disable_pathfinding:
+            logging.info("="*20 + " STAGE 3: SKIPPED (Cached) " + "="*20)
+            merged_fjson = _write_merged_features_json(run_dir, args.features_json, os.path.join(run_dir, 'new_feature_names.json'))
+            update_summary_step(run_summary, "feature_engineering", 0, {"enhanced_data": stage3_output, "new_features_list": os.path.join(run_dir, 'new_feature_names.json'), "features_json": merged_fjson}, status="CACHED")
+
+        # --- STAGE 4: Feature Stability Analysis ---
+        stability_dir = os.path.join(run_dir, "04_feature_stability")
+        curated_features_file = os.path.join(stability_dir, "curated_features.json")
+        
+        logging.info("="*20 + " STAGE 4: Feature Stability Analysis " + "="*20)
+        start_time = time.time()
+        stability_results = feature_stability_engine.run_feature_stability_analysis(
+            data_file=stage3_output if not args.disable_pathfinding else stage1_output,
+            features_file=os.path.join(run_dir, 'new_feature_names.json') if not args.disable_pathfinding else args.features_json,
+            output_dir=stability_dir,
+            vix_file=args.vix_file,
+            target_col='adaptive_target'
+        )
+        duration = time.time() - start_time
+        update_summary_step(run_summary, "feature_stability", duration, {
+            "stability_results": os.path.join(stability_dir, "feature_stability_results.json"),
+            "curated_features": curated_features_file
+        })
+
+        # --- STAGE 5: Validation Framework ---
+        validation_output = os.path.join(run_dir, "05_validation_results.json")
+        
+        logging.info("="*20 + " STAGE 5: Validation Framework " + "="*20)
+        start_time = time.time()
+        validation_results = validation_framework.run_validation(
+            data_file=stage3_output if not args.disable_pathfinding else stage1_output,
+            features_file=curated_features_file,
+            params_file="dump/hyperparameter_tuning_optimized/best_params_sharpe.json",  # This needs to be configurable
+            vix_file=args.vix_file,
+            n_splits=5,
+            gap_eras=100
+        )
+        duration = time.time() - start_time
+        
+        # Save validation results
+        with open(validation_output, 'w') as f:
+            json.dump(validation_results, f, indent=2, default=str)
+        
+        update_summary_step(run_summary, "validation", duration, {"validation_results": validation_output})
+
+        # --- STAGE 6: Ensemble Training ---
+        control_model_output = os.path.join(run_dir, "06_control_ensemble.pkl")
+        experimental_model_output = os.path.join(run_dir, "06_experimental_ensemble.pkl")
+        
+        # Set up seeds
+        if args.ensemble_seeds:
+            seeds = args.ensemble_seeds
+        else:
+            seeds = [args.seed + i for i in range(args.n_ensemble_models)]
+        
+        # Train control ensemble
+        logging.info("="*20 + " STAGE 6a: Control Ensemble Training " + "="*20)
+        start_time = time.time()
+        control_model, control_features = train_control_model_chunked.train_ensemble_chunked(
+            train_path=stage1_output,
+            valid_path=args.validation_data,
+            target_col='adaptive_target',
+            out_path=control_model_output,
+            curated_features_file=curated_features_file,
+            n_models=args.n_ensemble_models,
+            seeds=seeds
+        )
+        control_duration = time.time() - start_time
+        
+        # Train experimental ensemble
+        if not args.disable_pathfinding:
+            logging.info("="*20 + " STAGE 6b: Experimental Ensemble Training " + "="*20)
+            start_time = time.time()
+            experimental_model, experimental_features = train_experimental_model_chunked.train_ensemble_chunked(
+                train_path=stage3_output,
+                valid_path=args.validation_data,
+                target_col='adaptive_target',
+                out_path=experimental_model_output,
+                curated_features_file=curated_features_file,
+                n_models=args.n_ensemble_models,
+                seeds=seeds
+            )
+            experimental_duration = time.time() - start_time
+        else:
+            experimental_duration = 0
+            experimental_features = control_features
+        
+        update_summary_step(run_summary, "ensemble_training", control_duration + experimental_duration, {
+            "control_model": control_model_output,
+            "experimental_model": experimental_model_output if not args.disable_pathfinding else None,
+            "n_models": args.n_ensemble_models,
+            "control_features": len(control_features),
+            "experimental_features": len(experimental_features)
+        })
+
+        logging.info("✅ Enhanced pipeline run completed successfully!")
+        run_summary["status"] = "SUCCESS"
+        run_summary["end_time"] = datetime.now().isoformat()
+
+    except Exception as e:
+        logging.critical(f"❌ Enhanced pipeline run failed: {e}", exc_info=True)
+        run_summary["status"] = "FAILED"
+        run_summary["error"] = str(e)
+    
+    save_summary(run_summary, run_dir)
+    logging.info(f"Final run summary saved to {os.path.join(run_dir, 'run_summary.json')}")
+
+    if getattr(args, "pretty", False):
+        try:
+            print_pretty_summary(run_summary, color=not args.no_color)
+        except Exception as _e:
+            logging.warning("Pretty summary failed; falling back to plain output")

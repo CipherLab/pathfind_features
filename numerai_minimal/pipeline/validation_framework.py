@@ -66,19 +66,40 @@ class EraAwareCrossValidator:
         return splits
 
 
-def load_vix_data(eras: list) -> pd.DataFrame:
+def load_vix_data(eras: list, vix_file: str | None = None) -> pd.DataFrame:
     """
-    Placeholder function to simulate loading VIX data.
-    In a real scenario, this function would load VIX data from a file or API
-    and align it with the given eras.
+    Load VIX data and align it with the given eras.
+    If vix_file is provided, loads from that file. Otherwise, simulates data.
     """
+    if vix_file and os.path.exists(vix_file):
+        try:
+            vix_df = pd.read_csv(vix_file)
+            # Assume CSV has 'era' and 'vix' columns
+            vix_df['era'] = vix_df['era'].astype(str)
+            return vix_df[['era', 'vix']]
+        except Exception as e:
+            print(f"Warning: Failed to load VIX data from {vix_file}: {e}")
+            print("Falling back to simulated data...")
+
     print("Simulating VIX data loading...")
-    # Create a dummy VIX dataframe with random values
-    vix_data = pd.DataFrame({
+    # Create more realistic VIX data with some temporal patterns
+    np.random.seed(42)  # For reproducibility
+    n_eras = len(eras)
+
+    # Generate VIX values with some autocorrelation and regime-like behavior
+    vix_values = []
+    current_vix = 20  # Starting VIX level
+
+    for i in range(n_eras):
+        # Add some random walk with mean reversion
+        change = np.random.normal(0, 2)
+        current_vix = max(10, min(50, current_vix + change))
+        vix_values.append(current_vix)
+
+    return pd.DataFrame({
         'era': eras,
-        'vix': np.random.uniform(10, 40, size=len(eras))
+        'vix': vix_values
     })
-    return vix_data
 
 
 def categorize_eras_by_vix(era_series: pd.Series, vix_data: pd.DataFrame) -> pd.Series:
@@ -169,8 +190,87 @@ def train_and_evaluate_fold(X_train: pd.DataFrame, y_train: pd.Series,
     }
 
 
+def aggregate_validation_results(fold_results: List[Dict], vix_data: pd.DataFrame, era_series: pd.Series) -> Dict:
+    """Aggregate results across folds and analyze regime performance."""
+    # Aggregate basic metrics
+    aggregated = {}
+    metric_keys = ['overall_correlation', 'sharpe_ratio', 'sharpe_with_tc', 'mean_correlation', 'std_correlation']
+
+    for key in metric_keys:
+        values = [result.get(key, 0) for result in fold_results if key in result]
+        if values:
+            aggregated[f'mean_{key}'] = float(np.mean(values))
+            aggregated[f'std_{key}'] = float(np.std(values))
+
+    # Aggregate regime-specific metrics
+    regime_keys = [k for k in fold_results[0].keys() if k.startswith('corr_')]
+    for key in regime_keys:
+        values = [result.get(key, np.nan) for result in fold_results]
+        valid_values = [v for v in values if not np.isnan(v)]
+        if valid_values:
+            aggregated[f'mean_{key}'] = float(np.mean(valid_values))
+            aggregated[f'std_{key}'] = float(np.std(valid_values))
+
+    # Analyze VIX regime distribution
+    vix_regimes = categorize_eras_by_vix(era_series, vix_data)
+    regime_counts = vix_regimes.value_counts()
+    aggregated['regime_distribution'] = regime_counts.to_dict()
+
+    # Calculate regime stability metrics
+    vix_stats = vix_data['vix'].describe()
+    aggregated['vix_stats'] = {
+        'mean': float(vix_stats['mean']),
+        'std': float(vix_stats['std']),
+        'min': float(vix_stats['min']),
+        'max': float(vix_stats['max'])
+    }
+
+    return aggregated
+
+
+def print_validation_summary(aggregated_results: Dict):
+    """Print a comprehensive summary of validation results."""
+    print("\n" + "=" * 80)
+    print("VALIDATION SUMMARY")
+    print("=" * 80)
+
+    print("\nOverall Performance:")
+    print(f"  Overall Correlation: {aggregated_results['overall_correlation']:.4f}")
+    print(f"  Sharpe Ratio: {aggregated_results['sharpe_ratio']:.4f}")
+    print(f"  Sharpe with TC: {aggregated_results['sharpe_with_tc']:.4f}")
+    print(f"  Transaction Cost Impact: {aggregated_results['tc_impact']:.4f}")
+    print(f"  Mean Correlation: {aggregated_results['mean_correlation']:.4f}")
+    print(f"  Std Correlation: {aggregated_results['std_correlation']:.4f}")
+    print(f"  Number of Eras: {aggregated_results['n_eras']}")
+    
+    # Print regime metrics
+    print("\nRegime Metrics:")
+    for regime, mean_corr in aggregated_results['regime_metrics'].items():
+        print(f"{regime}: {mean_corr:.4f}")
+
+    print("\nRegime Distribution:")
+    regime_dist = aggregated_results.get('regime_distribution', {})
+    for regime, count in regime_dist.items():
+        print(f"  {regime}: {count} eras")
+
+    print("\nRegime-Specific Performance:")
+    for key, value in aggregated_results.items():
+        if key.startswith('mean_corr_'):
+            regime = key.replace('mean_corr_', '')
+            std_key = key.replace('mean_', 'std_')
+            std_val = aggregated_results.get(std_key, 0)
+            print(f"  {regime}: {value:.4f} (std: {std_val:.4f})")
+
+    print("\nVIX Statistics:")
+    vix_stats = aggregated_results.get('vix_stats', {})
+    print(f"  Mean: {vix_stats.get('mean', 0):.1f}")
+    print(f"  Std: {vix_stats.get('std', 0):.1f}")
+    print(f"  Min: {vix_stats.get('min', 0):.1f}")
+    print(f"  Max: {vix_stats.get('max', 0):.1f}")
+
+
 def run_validation(data_file: str, features_file: str,
-                   params_file: str,
+                   params_file: str, vix_file: str | None = None,
                    n_splits: int = 5, gap_eras: int = 100) -> Dict:
     """Run the full validation framework."""
     print("=" * 80)
@@ -188,7 +288,7 @@ def run_validation(data_file: str, features_file: str,
     era_series = df['era']
 
     # Load VIX data and categorize eras
-    vix_data = load_vix_data(era_series.unique().tolist())
+    vix_data = load_vix_data(era_series.unique().tolist(), vix_file)
     vix_regimes = categorize_eras_by_vix(era_series, vix_data)
 
     # Initialize cross-validator
@@ -217,9 +317,10 @@ def run_validation(data_file: str, features_file: str,
         print(f"  Sharpe with TC: {fold_result['sharpe_with_tc']:.2f}")
 
     # Aggregate and print results
-    # ... (summary printing logic to be added)
+    aggregated_results = aggregate_validation_results(fold_results, vix_data, era_series)
+    print_validation_summary(aggregated_results)
 
-    return {"fold_results": fold_results}
+    return {"fold_results": fold_results, "aggregated": aggregated_results}
 
 
 def main():
@@ -228,14 +329,19 @@ def main():
     data_file = "dump/pipeline_runs/my_experiment/01_adaptive_targets_validation.parquet"
     features_file = "dump/pipeline_runs/my_experiment/adaptive_only_model.json"
     params_file = "dump/hyperparameter_tuning_optimized/best_params_sharpe.json"
+    vix_file = None  # Optional: path to VIX data CSV
 
     for file_path in [data_file, features_file, params_file]:
         if not os.path.exists(file_path):
             print(f"Error: {file_path} not found!")
             return
 
-    results = run_validation(data_file, features_file, params_file)
-    # print_summary(results) # Implement this next
+    results = run_validation(data_file, features_file, params_file, vix_file)
+    # Save results to file
+    output_file = "validation_results.json"
+    with open(output_file, 'w') as f:
+        json.dump(results, f, indent=2, default=str)
+    print(f"\nValidation results saved to {output_file}")
 
 if __name__ == "__main__":
     main()

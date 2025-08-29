@@ -26,8 +26,8 @@ from typing import Dict, List, Tuple, Optional
 from sklearn.model_selection import TimeSeriesSplit
 import warnings
 
-from utils import RegimeDetector
-from metrics_utils import safe_sharpe, apply_transaction_cost
+from .utils import RegimeDetector
+from .metrics_utils import safe_sharpe, apply_transaction_cost
 
 warnings.filterwarnings('ignore')
 

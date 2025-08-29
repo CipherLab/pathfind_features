@@ -126,7 +126,7 @@ class FeatureStabilityEngine:
         self.feature_results[feature] = result
         return result
 
-    def build_ratio_features(self, stable_features: list[str], max_count: int = 10, epsilon: float = 1e-8) -> list[str]:
+    def build_ratio_features(self, stable_features: list[str], max_count: int = 10) -> list[str]:
         ratios = []
         for a, b in combinations(stable_features, 2):
             ratios.append(f"{a}_over_{b}")

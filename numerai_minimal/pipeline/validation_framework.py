@@ -157,7 +157,7 @@ def bootstrap_confidence_intervals(values: List[float], tc_bps: float,
         sample = np.random.choice(values, size=len(values), replace=True)
         boot_means.append(float(np.mean(sample)))
         s, _ = safe_sharpe(sample)
-        s = float(s) if s == s else 0.0
+        s = float(s) if not np.isnan(s) else 0.0
         s_tc, _ = apply_transaction_cost(s, tc_bps)
         boot_sharpes.append(float(s_tc))
 

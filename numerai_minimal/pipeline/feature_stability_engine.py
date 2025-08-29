@@ -22,8 +22,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 import logging
-from utils import reduce_mem_usage
-from validation_framework import load_vix_data, categorize_eras_by_vix
+from utils import reduce_mem_usage, RegimeDetector
 
 
 class FeatureStabilityEngine:
@@ -42,9 +41,10 @@ class FeatureStabilityEngine:
         df = pf.read().to_pandas()
         df = reduce_mem_usage(df, _verbose=False)
 
-        # Load VIX data and categorize regimes
-        vix_data = load_vix_data(df['era'].unique().tolist(), self.vix_file)
-        df['vix_regime'] = categorize_eras_by_vix(df['era'], vix_data)
+        # Load VIX data and categorize regimes using shared detector
+        detector = RegimeDetector()
+        vix_data = detector.load_vix_data(df['era'].unique().tolist(), self.vix_file)
+        df['vix_regime'] = detector.classify_eras(df['era'], vix_data, use_percentiles=True)
 
         self.regime_data = vix_data
         self.logger.info(f"Data loaded: {len(df):,} rows, {len(df.columns)} columns")

@@ -77,7 +77,7 @@ class HonestValidationFramework:
             'crisis': data[data['vix'] > high],
         }
 
-    def transaction_cost_reality_check(self, predictions, tc_bps: int | float = 25) -> dict:
+    def transaction_cost_reality_check(self, predictions: np.ndarray | pd.Series | list[float], tc_bps: int | float = 25) -> dict:
         """Reduce Sharpe ratio estimate by transaction cost impact."""
         preds = np.asarray(predictions)
         mean = preds.mean()

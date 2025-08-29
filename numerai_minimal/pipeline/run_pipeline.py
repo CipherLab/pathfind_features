@@ -145,6 +145,32 @@ def main():
     p_analyze.add_argument("--validation-data", required=True, help="Path to validation data with true targets.")
     p_analyze.add_argument("--control-predictions", required=True, help="Path to baseline model predictions for comparison.")
 
+    # --- ENHANCED_RUN Command ---
+    p_enhanced = subparsers.add_parser("enhanced_run", help="Execute the complete enhanced pipeline with validation, stability analysis, and ensemble training.")
+    p_enhanced.add_argument("--input-data", required=True, help="Path to the initial train.parquet file.")
+    p_enhanced.add_argument("--features-json", required=True, help="Path to the features.json file.")
+    p_enhanced.add_argument("--validation-data", required=True, help="Path to validation data for ensemble training.")
+    p_enhanced.add_argument("--experiment-name", default=None, help="Name of the experiment. If provided, creates a directory with this name under pipeline_runs/. Otherwise, a timestamped directory is created.")
+    p_enhanced.add_argument("--force", action="store_true", help="Force re-execution of all steps, ignoring cache.")
+    p_enhanced.add_argument("--skip-walk-forward", action="store_true", help="Use equal weights for targets (for quick tests).")
+    p_enhanced.add_argument("--max-new-features", type=int, default=20, help="Number of new relationship features to create.")
+    p_enhanced.add_argument("--yolo-mode", action="store_true", help="Trust the original results, create 40+ features.")
+    p_enhanced.add_argument("--pf-debug", action="store_true", help="Enable detailed pathfinding debug logging and write a .debug.json summary.")
+    p_enhanced.add_argument("--pf-debug-every-rows", type=int, default=10000, help="Emit pathfinding debug stats every N processed rows (when --pf-debug is set).")
+    p_enhanced.add_argument("--pretty", action="store_true", help="Print a formatted run summary table at the end.")
+    p_enhanced.add_argument("--no-color", action="store_true", help="Disable ANSI colors in pretty output.")
+    p_enhanced.add_argument("--disable-pathfinding", action="store_true", help="Skip Stage 2 (pathfinding) and Stage 3 (feature engineering).")
+    p_enhanced.add_argument("--vix-file", default=None, help="Path to VIX data CSV file for regime analysis.")
+    p_enhanced.add_argument("--n-ensemble-models", type=int, default=5, help="Number of models in the ensemble.")
+    p_enhanced.add_argument("--ensemble-seeds", nargs='+', type=int, help="Specific seeds for ensemble models (overrides n_ensemble_models).")
+    # Smoke / sampling controls
+    p_enhanced.add_argument("--smoke-mode", action="store_true", help="Enable fast sampling mode (limits eras, rows, targets, and features for a quicker end-to-end test).")
+    p_enhanced.add_argument("--smoke-max-eras", type=int, default=None, help="Maximum number of eras to process (overrides in smoke-mode).")
+    p_enhanced.add_argument("--smoke-row-limit", type=int, default=None, help="Row limit across all batches per stage (overrides in smoke-mode).")
+    p_enhanced.add_argument("--smoke-target-limit", type=int, default=None, help="Limit number of target columns (prefix 'target') used in Stage 1.")
+    p_enhanced.add_argument("--smoke-feature-limit", type=int, default=None, help="Limit number of feature columns (prefix 'feature') used in Stage 2 pathfinding.")
+    p_enhanced.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
+
     args = parser.parse_args()
 
     if args.command == "list":

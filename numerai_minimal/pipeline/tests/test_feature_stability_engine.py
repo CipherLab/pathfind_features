@@ -68,7 +68,7 @@ class TestFeatureStabilityEngine:
         
         result = self.engine._analyze_single_feature(self.mock_df, 'stable_feature', 'adaptive_target')
         
-        assert result['stable'] is True
+        assert result['stable'] == True
         assert 'stability_score' in result
         assert result['stability_score'] > 0
 
@@ -82,7 +82,7 @@ class TestFeatureStabilityEngine:
         
         result = self.engine._analyze_single_feature(self.mock_df, 'unstable_feature', 'adaptive_target')
         
-        assert result['stable'] is False
+        assert result['stable'] == False
         assert 'sign_flip' in result['reason']
 
     def test_build_ratio_features(self):

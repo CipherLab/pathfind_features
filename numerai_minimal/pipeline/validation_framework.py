@@ -41,27 +41,47 @@ class EraAwareCrossValidator:
         unique_eras = sorted(X[self.era_column].unique())
         n_eras = len(unique_eras)
         
-        # Calculate the number of eras for each part of the split
-        n_train_eras = (n_eras - self.gap_eras) // self.n_splits
+        # Ensure we have enough eras for the requested splits
+        min_eras_needed = self.n_splits * 4 + self.gap_eras  # Conservative estimate
+        if n_eras < min_eras_needed:
+            raise ValueError(f"Not enough eras ({n_eras}) for {self.n_splits} splits with gap {self.gap_eras}. Need at least {min_eras_needed}.")
+        
+        # Calculate split size to fit all splits
+        total_space_needed = self.n_splits * 2 + (self.n_splits - 1)  # train + val for each + gaps between
+        available_space = n_eras - self.gap_eras
+        split_size = max(1, available_space // total_space_needed)
+        
+        n_train_eras = split_size
+        n_val_eras = split_size
         
         splits = []
+        current_era_idx = 0
+        
         for i in range(self.n_splits):
-            train_start_era = unique_eras[i * n_train_eras]
-            train_end_era = unique_eras[(i + 1) * n_train_eras - 1]
+            # Calculate train era range
+            train_start_idx = current_era_idx
+            train_end_idx = min(train_start_idx + n_train_eras - 1, n_eras - 1)
             
-            val_start_era = unique_eras[(i + 1) * n_train_eras + self.gap_eras]
+            # Calculate validation era range (after gap)
+            val_start_idx = train_end_idx + 1 + self.gap_eras
+            val_end_idx = min(val_start_idx + n_val_eras - 1, n_eras - 1)
             
-            # For the last split, validation goes to the end
-            if i == self.n_splits - 1:
-                val_end_era = unique_eras[-1]
-            else:
-                val_end_era = unique_eras[(i + 1) * n_train_eras + self.gap_eras + n_train_eras -1]
-
+            # Ensure we have valid validation data
+            if val_start_idx >= n_eras or val_end_idx < val_start_idx:
+                break
+                
+            train_start_era = unique_eras[train_start_idx]
+            train_end_era = unique_eras[train_end_idx]
+            val_start_era = unique_eras[val_start_idx]
+            val_end_era = unique_eras[val_end_idx]
 
             train_indices = X[X[self.era_column].between(train_start_era, train_end_era)].index
             val_indices = X[X[self.era_column].between(val_start_era, val_end_era)].index
             
             splits.append((train_indices, val_indices))
+            
+            # Move to next era for next split
+            current_era_idx = val_end_idx + 1
 
         return splits
 
@@ -132,7 +152,7 @@ def calculate_realistic_sharpe(era_correlations: List[float], transaction_cost_b
     # Estimate transaction cost impact
     assumed_volatility = 0.15  # 15% annual volatility
     tc_impact = transaction_cost_bps / 10000 / assumed_volatility
-    sharpe_with_tc = max(0, sharpe - tc_impact)
+    sharpe_with_tc = max(0.0, float(sharpe - tc_impact))
 
     return {
         "sharpe_ratio": sharpe,
@@ -235,18 +255,10 @@ def print_validation_summary(aggregated_results: Dict):
     print("=" * 80)
 
     print("\nOverall Performance:")
-    print(f"  Overall Correlation: {aggregated_results['overall_correlation']:.4f}")
-    print(f"  Sharpe Ratio: {aggregated_results['sharpe_ratio']:.4f}")
-    print(f"  Sharpe with TC: {aggregated_results['sharpe_with_tc']:.4f}")
-    print(f"  Transaction Cost Impact: {aggregated_results['tc_impact']:.4f}")
-    print(f"  Mean Correlation: {aggregated_results['mean_correlation']:.4f}")
-    print(f"  Std Correlation: {aggregated_results['std_correlation']:.4f}")
-    print(f"  Number of Eras: {aggregated_results['n_eras']}")
-    
-    # Print regime metrics
-    print("\nRegime Metrics:")
-    for regime, mean_corr in aggregated_results['regime_metrics'].items():
-        print(f"{regime}: {mean_corr:.4f}")
+    if 'mean_overall_correlation' in aggregated_results:
+        print(f"  Overall Correlation: {aggregated_results['mean_overall_correlation']:.4f}")
+    if 'mean_sharpe_with_tc' in aggregated_results:
+        print(f"  Sharpe with TC: {aggregated_results['mean_sharpe_with_tc']:.2f}")
 
     print("\nRegime Distribution:")
     regime_dist = aggregated_results.get('regime_distribution', {})

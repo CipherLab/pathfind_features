@@ -161,10 +161,17 @@ class MetaLearningOptimizer:
                         continue
 
                     # Get best performing target for this era
+                    if era not in self.target_performance:
+                        print(f"Era {era} not found in target_performance")
+                        continue
                     era_perfs = self.target_performance[era]
                     if not era_perfs:
+                        print(f"Empty era_perfs for era {era}")
                         continue
-
+                    
+                    # Debug: check era_perfs content
+                    print(f"Era {era}: {len(era_perfs)} targets, best: {max(era_perfs.items(), key=lambda x: x[1])}")
+                    
                     best_target = max(era_perfs.items(), key=lambda x: x[1])[0]
                     best_target_idx = self.target_columns.index(best_target)
 
@@ -252,7 +259,7 @@ class MetaLearningOptimizer:
                     if len(era_df) < 10:  # Skip eras with too few samples
                         continue
 
-                    # Get best performing target for this era
+                    # Get best performing target for this era from validation target performance
                     if era not in val_optimizer.target_performance:
                         continue
                     era_perfs = val_optimizer.target_performance[era]
@@ -268,16 +275,34 @@ class MetaLearningOptimizer:
                     if not meta_feat:  # Skip if no features could be created
                         continue
 
-                    # Predict best target
+                    # Predict best target using the meta-model trained on training data
                     X_pred = np.array([meta_feat])
                     pred_result = meta_model.predict(X_pred)
-                    if isinstance(pred_result, (list, tuple)) and len(pred_result) > 0:
-                        pred_probs = pred_result[0]
+                    
+                    # Handle prediction result properly
+                    if isinstance(pred_result, (list, tuple)):
+                        if len(pred_result) > 0:
+                            pred_probs = pred_result[0]
+                        else:
+                            print(f"Empty prediction result for era {era}")
+                            continue
                     else:
                         pred_probs = pred_result
                     
                     # Ensure pred_probs is a numpy array
-                    pred_probs = np.asarray(pred_probs).flatten()
+                    pred_probs = np.asarray(pred_probs)
+                    
+                    # Handle both 1D and 2D prediction arrays
+                    if pred_probs.ndim == 2:
+                        # Multiple samples - take the first one
+                        pred_probs = pred_probs[0]
+                    elif pred_probs.ndim == 1:
+                        # Single sample - use as is
+                        pass
+                    else:
+                        print(f"Unexpected prediction shape: {pred_probs.shape}")
+                        continue
+                    
                     pred_target_idx = int(np.argmax(pred_probs))
                     pred_target = self.target_columns[pred_target_idx]
 
@@ -360,29 +385,52 @@ class MetaLearningOptimizer:
                 for target in self.target_columns:
                     if target in era_df:
                         try:
-                            # Simple correlation calculation without scipy
-                            target_vals = era_df[target].values
-                            feature_mean = era_df[features].mean(axis=1).values
-                            
-                            # Remove NaN values
-                            valid_mask = ~(np.isnan(target_vals) | np.isnan(feature_mean))
-                            if np.sum(valid_mask) > 1:
-                                t_clean = target_vals[valid_mask]
-                                f_clean = feature_mean[valid_mask]
+                            # Check which features are available
+                            available_features = [f for f in features if f in era_df.columns]
+                            if len(available_features) == 0:
+                                print(f"  No features available for era {era}")
+                                corr = 0.0
+                            else:
+                                # Simple correlation calculation without scipy
+                                target_vals = era_df[target].values
+                                feature_mean = era_df[available_features].mean(axis=1).values
                                 
-                                # Simple correlation coefficient
-                                t_mean = np.mean(t_clean)
-                                f_mean = np.mean(f_clean)
-                                numerator = np.sum((t_clean - t_mean) * (f_clean - f_mean))
-                                denominator = np.sqrt(np.sum((t_clean - t_mean)**2) * np.sum((f_clean - f_mean)**2))
+                                # Debug info
+                                n_samples = len(target_vals)
+                                n_features = len(available_features)
+                                target_std = np.std(target_vals) if n_samples > 1 else 0
+                                feature_std = np.std(feature_mean) if n_samples > 1 else 0
                                 
-                                if denominator > 0:
-                                    corr = numerator / denominator
+                                print(f"  Era {era}, target {target}: {n_samples} samples, {n_features} features")
+                                print(f"    Target std: {target_std:.6f}, Feature std: {feature_std:.6f}")
+                                
+                                # Remove NaN values
+                                valid_mask = ~(np.isnan(target_vals) | np.isnan(feature_mean))
+                                n_valid = np.sum(valid_mask)
+                                print(f"    Valid samples: {n_valid}/{n_samples}")
+                                
+                                if np.sum(valid_mask) > 1:
+                                    t_clean = target_vals[valid_mask]
+                                    f_clean = feature_mean[valid_mask]
+                                    
+                                    # Simple correlation coefficient
+                                    t_mean = np.mean(t_clean)
+                                    f_mean = np.mean(f_clean)
+                                    numerator = np.sum((t_clean - t_mean) * (f_clean - f_mean))
+                                    denominator = np.sqrt(np.sum((t_clean - t_mean)**2) * np.sum((f_clean - f_mean)**2))
+                                    
+                                    print(f"    Numerator: {numerator:.6f}, Denominator: {denominator:.6f}")
+                                    
+                                    if denominator > 0:
+                                        corr = numerator / denominator
+                                        print(f"    Correlation: {corr:.6f}")
+                                    else:
+                                        corr = 0.0
+                                        print(f"    Correlation: 0.0 (denominator is zero)")
                                 else:
                                     corr = 0.0
-                            else:
-                                corr = 0.0
-                                
+                                    print(f"    Correlation: 0.0 (insufficient valid samples)")
+                            
                             era_performance[target] = float(corr)
                         except Exception as e:
                             print(f"Error computing correlation for {target} in era {era}: {e}")

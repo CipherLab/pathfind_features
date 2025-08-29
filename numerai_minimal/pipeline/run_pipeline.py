@@ -10,22 +10,11 @@ import time
 import shutil
 from pathlib import Path
 
-# Ensure the project root is on sys.path so top-level modules (e.g., 'tests', 'bootstrap_pipeline') resolve
-_THIS_FILE = Path(__file__).resolve()
-_PROJECT_ROOT = _THIS_FILE.parents[2]  # src/utils -> src -> project root
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-
-from tests import setup_script_output, get_output_path, initialize_script_output, add_output_dir_arguments
-
-# Ensure the bootstrap_pipeline module is in the Python path
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-
-from bootstrap_pipeline.steps import step_01_target_discovery
-from bootstrap_pipeline.steps import step_02_pathfinding
-from bootstrap_pipeline.steps import step_03_feature_engineering
-from bootstrap_pipeline.analysis import performance as analysis
-from bootstrap_pipeline.utils.cache import compute_hash, stage_cache_lookup, stage_cache_store, materialize_cached_artifacts
+import step_01_target_discovery
+import step_02_pathfinding
+import step_03_feature_engineering
+import performance as analysis
+from cache import compute_hash, stage_cache_lookup, stage_cache_store, materialize_cached_artifacts
 import random
 import numpy as np
 from typing import List

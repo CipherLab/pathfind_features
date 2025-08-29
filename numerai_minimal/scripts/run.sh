@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Single CLI script for training and validation.
+# Single CLI script for running the pipeline and validation.
 
 set -e  # Exit on any error
 
@@ -22,7 +22,7 @@ setup_logging() {
 
 run_pipeline() {
     log "--- Starting Pipeline ---"
-    python src/utils/run_pipeline.py run \
+    python pipeline/run_pipeline.py run \
         --input-data ../dump/v5.0/train.parquet \
         --features-json ../dump/v5.0/features.json \
         --experiment-name "my_experiment" \
@@ -33,7 +33,7 @@ run_pipeline() {
 
 run_validation() {
     log "--- Starting Validation ---"
-    python src/analysis/validation_framework.py | tee -a "$LOG_FILE"
+    python pipeline/validation_framework.py | tee -a "$LOG_FILE"
     log "--- Validation Finished ---"
 }
 

@@ -13,7 +13,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import Ridge
 from scipy.stats import pearsonr
 import warnings
-from .metrics_utils import era_sanity, safe_sharpe, feature_condition_number
+from metrics_utils import era_sanity, safe_sharpe, feature_condition_number
 from tests import setup_script_output, get_output_path, initialize_script_output, add_output_dir_arguments
 
 try:

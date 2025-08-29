@@ -13,8 +13,8 @@ import hashlib
 import shutil
 from pathlib import Path
 from collections import defaultdict
-from bootstrap_pipeline.bootstrap.target_discovery import WalkForwardTargetDiscovery
-from bootstrap_pipeline.utils.utils import reduce_mem_usage
+from target_discovery import WalkForwardTargetDiscovery
+from utils import reduce_mem_usage
 from tests import setup_script_output, setup_logging_with_output_dir
 
 # Bump this when changing discovery/caching behavior to invalidate old cache entries

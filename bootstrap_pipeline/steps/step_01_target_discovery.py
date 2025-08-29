@@ -611,7 +611,7 @@ if __name__ == "__main__":
     parser.add_argument("--td-top-full-models", type=int, default=3, help="Top K combos to refine with full models in hybrid mode")
     parser.add_argument("--td-ridge-lambda", type=float, default=1.0, help="Ridge regularization for linear screening")
     parser.add_argument("--td-sample-per-era", type=int, default=2000, help="Rows sampled per era for discovery")
-    parser.add_argument("--td-max-combinations", type=int, default=20, help="Max weight combinations to test")
+    parser.add_argument("--td-max-combinations", type=int, default=200, help="Max weight combinations to test")
     parser.add_argument("--td-feature-fraction", type=float, default=0.5, help="Feature fraction for model training")
     parser.add_argument("--td-num-boost-round", type=int, default=12, help="LightGBM boosting rounds for full models")
     parser.add_argument("--td-max-era-cache", type=int, help="Max eras to keep in preprocessing cache (0 = unlimited)")

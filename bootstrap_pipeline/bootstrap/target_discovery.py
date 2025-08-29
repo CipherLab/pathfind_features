@@ -33,7 +33,7 @@ class WalkForwardTargetDiscovery:
         top_full_models: int = 3,
         ridge_lambda: float = 1.0,
         sample_per_era: int = 2000,
-        max_combinations: int = 15,
+        max_combinations: int = 200,  # Increased from 15 to 200 for better exploration
         feature_fraction: float = 0.8,
         random_state: int = 42,
         num_boost_round: int = 12,
@@ -191,41 +191,80 @@ class WalkForwardTargetDiscovery:
         return S_tr.astype(np.float32), S_te.astype(np.float32), meta
 
     def generate_smart_combinations(self, n_combinations: int | None = None) -> np.ndarray:
-        """Generate target combinations to test - fewer but smarter (improved from 2.0)"""
+        """Generate target combinations to test - improved for better exploration"""
         if n_combinations is None:
             n_combinations = self.max_combinations
         combinations = []
         
-        # Pure targets (top performers only - limit to first 5 for speed)
-        for i in range(min(5, self.n_targets)):
+        # Always include single targets (comprehensive coverage)
+        for i in range(self.n_targets):
             weights = np.zeros(self.n_targets)
             weights[i] = 1.0
             combinations.append(weights)
         
-        # Equal weight (the baseline everyone uses)
+        # Equal weight baseline
         combinations.append(np.ones(self.n_targets) / self.n_targets)
         
-        # Top-heavy (first few targets get most weight)
-        for focus in [2, 3]:
-            if focus <= self.n_targets:
-                weights = np.zeros(self.n_targets)
-                weights[:focus] = np.random.dirichlet(np.ones(focus))
+        # Generate diverse combinations based on target count
+        n_targets = self.n_targets
+        remaining_slots = max(0, n_combinations - len(combinations))
+        
+        if n_targets <= 10:
+            # Small target space - systematic exploration
+            # Pairwise combinations
+            for i in range(n_targets):
+                for j in range(i+1, n_targets):
+                    weights = np.zeros(n_targets)
+                    weights[i] = 0.6
+                    weights[j] = 0.4
+                    combinations.append(weights)
+            
+            # Triple combinations
+            for i in range(n_targets):
+                for j in range(i+1, n_targets):
+                    for k in range(j+1, n_targets):
+                        weights = np.zeros(n_targets)
+                        weights[i] = 0.4
+                        weights[j] = 0.35
+                        weights[k] = 0.25
+                        combinations.append(weights)
+                        
+        else:
+            # Large target space - strategic sampling
+            # Systematic fractions of targets
+            for n_active in [3, 5, 8, 12, 15]:
+                if n_active > n_targets:
+                    continue
+                for _ in range(min(10, remaining_slots // 4)):  # Limit per category
+                    weights = np.zeros(n_targets)
+                    active_idx = np.random.choice(n_targets, n_active, replace=False)
+                    # Use Dirichlet for diverse weight distributions
+                    active_weights = np.random.dirichlet(np.ones(n_active) * 0.5)
+                    for idx, w in zip(active_idx, active_weights):
+                        weights[idx] = w
+                    combinations.append(weights)
+            
+            # Focused combinations (high weight on few targets)
+            for _ in range(min(20, remaining_slots // 3)):
+                n_active = np.random.randint(2, min(6, n_targets + 1))
+                weights = np.zeros(n_targets)
+                active_idx = np.random.choice(n_targets, n_active, replace=False)
+                # Concentrate weight on first target
+                weights[active_idx[0]] = np.random.uniform(0.5, 0.8)
+                remaining_weight = 1.0 - weights[active_idx[0]]
+                if n_active > 1:
+                    other_weights = np.random.dirichlet(np.ones(n_active - 1) * 0.5)
+                    for idx, w in zip(active_idx[1:], other_weights):
+                        weights[idx] = w * remaining_weight
                 combinations.append(weights)
         
-        # Random sparse combinations (more focused than original)
-        base_len = len(combinations)
-        if n_combinations < base_len:
-            return np.array(combinations[:n_combinations])
-        
-        remaining = max(0, n_combinations - base_len)
-        for _ in range(remaining):
-            weights = np.zeros(self.n_targets)
-            n_active = random.randint(2, min(4, self.n_targets))
-            active_idx = random.sample(range(self.n_targets), n_active)
-            active_weights = np.random.dirichlet(np.ones(n_active))
-            for i, idx in enumerate(active_idx):
-                weights[idx] = active_weights[i]
-            combinations.append(weights)
+        # Ensure we don't exceed requested combinations
+        if len(combinations) > n_combinations:
+            # Prioritize: singles, equal, then diverse combinations
+            priority_combinations = combinations[:len(combinations) - n_targets - 1]  # All except singles
+            single_combinations = combinations[-n_targets - 1:]  # Singles + equal
+            combinations = single_combinations + priority_combinations
+            combinations = combinations[:n_combinations]
         
         return np.array(combinations)
     
@@ -565,10 +604,12 @@ class WalkForwardTargetDiscovery:
         combinations = self.generate_smart_combinations()
 
         # Pre-screen combinations cheaply with Ridge to reduce LGBM calls (except in linear_fast mode)
-        if self.eval_mode != 'linear_fast' and len(combinations) > 5:
+        if self.eval_mode != 'linear_fast' and len(combinations) > 10:
             try:
                 logging.debug("Pre-screening %d combinations with Ridge regression", len(combinations))
-                combinations = self.fast_combination_screen(combinations, history_df, feature_cols, keep_top=min(8, len(combinations)))
+                # Keep more combinations from pre-screening - top 20% or at least 15
+                keep_count = max(15, len(combinations) // 5)
+                combinations = self.fast_combination_screen(combinations, history_df, feature_cols, keep_top=keep_count)
                 logging.debug("After Ridge pre-screening: %d combinations remain", len(combinations))
             except Exception as e:
                 logging.warning(f"Ridge pre-screening failed, using all combinations: {e}")

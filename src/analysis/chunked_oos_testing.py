@@ -311,14 +311,13 @@ def main():
         return
 
     print("📊 PERFORMANCE METRICS:")
-    print(".4f")
-    print(".2f")
-    print(".2f")
+    print(f"  Overall correlation: {results['overall_correlation']:.4f}")
+    print(f"  Sharpe ratio: {results['sharpe_ratio']:.2f}")
+    print(f"  Sharpe with TC: {results['sharpe_with_tc']:.2f}")
     print(f"  Test samples: {results['n_test_samples']:,}")
     print(f"  Test eras: {results['n_test_eras']}")
 
-    print("
-🔍 INTERPRETATION:")
+    print("\n🔍 INTERPRETATION:")
 
     sharpe = results['sharpe_with_tc']
     if sharpe > 2.0:
@@ -330,8 +329,7 @@ def main():
     else:
         print(f"  ❌ POOR: Sharpe {sharpe:.1f} (significant issues)")
 
-    print("
-💡 SUMMARY:")
+    print("\n💡 SUMMARY:")
     print("  ✅ Memory-efficient chunked processing implemented")
     print("  ✅ Era-aware out-of-sample testing completed")
     print("  ✅ Transaction cost analysis included")

@@ -61,8 +61,13 @@ class HonestValidationFramework:
             "brutal_honesty_score": float(honesty),
         }
 
-    def regime_aware_splits(self, data: pd.DataFrame, vix_thresholds: list[int] | tuple[int, int] = (15, 25)) -> dict[str, pd.DataFrame]:
-        """Split data into VIX regimes: crisis (>high), grind (<low) and transition."""
+    def regime_aware_splits(self, data: pd.DataFrame, vix_thresholds: tuple[int, int] = (15, 25)) -> dict[str, pd.DataFrame]:
+        """Split data into VIX regimes: crisis (>high), grind (<low) and transition.
+        
+        Args:
+            data (pd.DataFrame): DataFrame containing a 'vix' column.
+            vix_thresholds (tuple[int, int]): (low, high) VIX thresholds for regime splitting.
+        """
         low, high = vix_thresholds
         if 'vix' not in data.columns:
             raise ValueError("Data must contain 'vix' column for regime splitting")

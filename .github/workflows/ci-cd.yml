@@ -2,13 +2,13 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, cleanup ]
+    branches: [main, cleanup]
   pull_request:
-    branches: [ main, cleanup ]
+    branches: [main, cleanup]
   workflow_dispatch:
     inputs:
       run_production_tests:
-        description: 'Run production readiness tests with real data'
+        description: "Run production readiness tests with real data"
         required: false
         default: false
         type: boolean
@@ -22,30 +22,30 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-cov pytest-mock
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-mock
 
-    - name: Run unit tests
-      run: |
-        cd numerai_minimal
-        python -m pytest pipeline/tests/ -v --cov=pipeline --cov-report=xml
+      - name: Run unit tests
+        run: |
+          cd numerai_minimal
+          python -m pytest pipeline/tests/ -v --cov=pipeline --cov-report=xml
 
-    - name: Upload coverage reports
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./numerai_minimal/coverage.xml
-        flags: unit-tests
-        name: unit-tests-py${{ matrix.python-version }}
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./numerai_minimal/coverage.xml
+          flags: unit-tests
+          name: unit-tests-py${{ matrix.python-version }}
 
   # Integration tests with synthetic data
   integration-tests:
@@ -53,69 +53,69 @@ jobs:
     needs: unit-tests
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.13"
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.13"
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-mock
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-mock
 
-    - name: Generate synthetic test data
-      run: |
-        cd numerai_minimal
-        python -c "
-        import pandas as pd
-        import numpy as np
-        import json
-        import os
+      - name: Generate synthetic test data
+        run: |
+          cd numerai_minimal
+          python -c "
+          import pandas as pd
+          import numpy as np
+          import json
+          import os
 
-        # Create synthetic features.json
-        features = {
-            'feature_sets': {
-                'small': [f'feature_{i}' for i in range(10)],
-                'medium': [f'feature_{i}' for i in range(50)],
-                'intelligence': [f'intelligence_{i}' for i in range(100)]
-            },
-            'targets': [f'target_{i}' for i in range(5)]
-        }
+          # Create synthetic features.json
+          features = {
+              'feature_sets': {
+                  'small': [f'feature_{i}' for i in range(10)],
+                  'medium': [f'feature_{i}' for i in range(50)],
+                  'intelligence': [f'intelligence_{i}' for i in range(100)]
+              },
+              'targets': [f'target_{i}' for i in range(5)]
+          }
 
-        os.makedirs('test_data', exist_ok=True)
-        with open('test_data/features.json', 'w') as f:
-            json.dump(features, f, indent=2)
+          os.makedirs('test_data', exist_ok=True)
+          with open('test_data/features.json', 'w') as f:
+              json.dump(features, f, indent=2)
 
-        # Create synthetic parquet data (small subset)
-        np.random.seed(42)
-        n_rows = 10000
-        n_features = 50
+          # Create synthetic parquet data (small subset)
+          np.random.seed(42)
+          n_rows = 10000
+          n_features = 50
 
-        data = {
-            'era': np.repeat(range(1, 101), n_rows // 100),  # 100 eras
-        }
+          data = {
+              'era': np.repeat(range(1, 101), n_rows // 100),  # 100 eras
+          }
 
-        # Add features
-        for i in range(n_features):
-            data[f'feature_{i}'] = np.random.randn(n_rows)
+          # Add features
+          for i in range(n_features):
+              data[f'feature_{i}'] = np.random.randn(n_rows)
 
-        # Add targets
-        for i in range(5):
-            data[f'target_{i}'] = np.random.randn(n_rows) * 0.1
+          # Add targets
+          for i in range(5):
+              data[f'target_{i}'] = np.random.randn(n_rows) * 0.1
 
-        df = pd.DataFrame(data)
-        df.to_parquet('test_data/train_small.parquet', index=False)
+          df = pd.DataFrame(data)
+          df.to_parquet('test_data/train_small.parquet', index=False)
 
-        print('✅ Synthetic test data generated')
-        "
+          print('✅ Synthetic test data generated')
+          "
 
-    - name: Run integration tests
-      run: |
-        cd numerai_minimal
-        python -m pytest pipeline/tests/test_integration.py -v -s
+      - name: Run integration tests
+        run: |
+          cd numerai_minimal
+          python -m pytest pipeline/tests/test_integration.py -v -s
 
   # Performance and memory regression tests
   performance-tests:
@@ -123,55 +123,55 @@ jobs:
     needs: integration-tests
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.13"
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.13"
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-mock psutil memory-profiler
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-mock psutil memory-profiler
 
-    - name: Generate performance test data
-      run: |
-        cd numerai_minimal
-        python -c "
-        import pandas as pd
-        import numpy as np
-        import json
-        import os
+      - name: Generate performance test data
+        run: |
+          cd numerai_minimal
+          python -c "
+          import pandas as pd
+          import numpy as np
+          import json
+          import os
 
-        # Create medium-sized test data for performance testing
-        np.random.seed(42)
-        n_rows = 50000  # Medium size for performance testing
-        n_features = 100
+          # Create medium-sized test data for performance testing
+          np.random.seed(42)
+          n_rows = 50000  # Medium size for performance testing
+          n_features = 100
 
-        data = {
-            'era': np.repeat(range(1, 201), n_rows // 200),  # 200 eras
-        }
+          data = {
+              'era': np.repeat(range(1, 201), n_rows // 200),  # 200 eras
+          }
 
-        # Add features
-        for i in range(n_features):
-            data[f'feature_{i}'] = np.random.randn(n_rows)
+          # Add features
+          for i in range(n_features):
+              data[f'feature_{i}'] = np.random.randn(n_rows)
 
-        # Add targets
-        for i in range(5):
-            data[f'target_{i}'] = np.random.randn(n_rows) * 0.1
+          # Add targets
+          for i in range(5):
+              data[f'target_{i}'] = np.random.randn(n_rows) * 0.1
 
-        df = pd.DataFrame(data)
-        df.to_parquet('test_data/train_medium.parquet', index=False)
+          df = pd.DataFrame(data)
+          df.to_parquet('test_data/train_medium.parquet', index=False)
 
-        print(f'✅ Performance test data generated: {n_rows} rows, {n_features} features')
-        "
+          print(f'✅ Performance test data generated: {n_rows} rows, {n_features} features')
+          "
 
-    - name: Run performance regression tests
-      run: |
-        cd numerai_minimal
-        python -m pytest pipeline/tests/test_performance.py -v -s --durations=10
+      - name: Run performance regression tests
+        run: |
+          cd numerai_minimal
+          python -m pytest pipeline/tests/test_performance.py -v -s --durations=10
 
   # Production readiness tests (manual trigger or scheduled)
   production-readiness:
@@ -180,146 +180,146 @@ jobs:
     needs: [unit-tests, integration-tests, performance-tests]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.13"
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.13"
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest psutil memory-profiler
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest psutil memory-profiler
 
-    - name: Download Numerai data (if available)
-      run: |
-        # This would typically download from Numerai API or use cached data
-        # For now, we'll use synthetic data scaled to production size
-        cd numerai_minimal
-        python -c "
-        import pandas as pd
-        import numpy as np
-        import json
-        import os
+      - name: Download Numerai data (if available)
+        run: |
+          # This would typically download from Numerai API or use cached data
+          # For now, we'll use synthetic data scaled to production size
+          cd numerai_minimal
+          python -c "
+          import pandas as pd
+          import numpy as np
+          import json
+          import os
 
-        print('🔄 Generating production-scale synthetic data...')
+          print('🔄 Generating production-scale synthetic data...')
 
-        # Production-scale data simulation
-        n_rows = 100000  # Simulate 100k rows (subset of real data)
-        n_features = 500  # Simulate 500 features (subset of real 2400+)
+          # Production-scale data simulation
+          n_rows = 100000  # Simulate 100k rows (subset of real data)
+          n_features = 500  # Simulate 500 features (subset of real 2400+)
 
-        data = {
-            'era': np.repeat(range(1, 501), n_rows // 500),  # 500 eras
-        }
+          data = {
+              'era': np.repeat(range(1, 501), n_rows // 500),  # 500 eras
+          }
 
-        # Add features (simulate real feature patterns)
-        for i in range(n_features):
-            # Mix of different feature types
-            if i % 3 == 0:
-                data[f'feature_{i}'] = np.random.randn(n_rows)
-            elif i % 3 == 1:
-                data[f'feature_{i}'] = np.random.exponential(1, n_rows)
-            else:
-                data[f'feature_{i}'] = np.random.uniform(-1, 1, n_rows)
+          # Add features (simulate real feature patterns)
+          for i in range(n_features):
+              # Mix of different feature types
+              if i % 3 == 0:
+                  data[f'feature_{i}'] = np.random.randn(n_rows)
+              elif i % 3 == 1:
+                  data[f'feature_{i}'] = np.random.exponential(1, n_rows)
+              else:
+                  data[f'feature_{i}'] = np.random.uniform(-1, 1, n_rows)
 
-        # Add targets
-        for i in range(20):  # Simulate 20 targets
-            data[f'target_{i}'] = np.random.randn(n_rows) * 0.05
+          # Add targets
+          for i in range(20):  # Simulate 20 targets
+              data[f'target_{i}'] = np.random.randn(n_rows) * 0.05
 
-        df = pd.DataFrame(data)
-        df.to_parquet('test_data/train_production.parquet', index=False)
+          df = pd.DataFrame(data)
+          df.to_parquet('test_data/train_production.parquet', index=False)
 
-        # Create features.json
-        features = {
-            'feature_sets': {
-                'small': [f'feature_{i}' for i in range(50)],
-                'medium': [f'feature_{i}' for i in range(200)],
-                'large': [f'feature_{i}' for i in range(n_features)]
-            },
-            'targets': [f'target_{i}' for i in range(20)]
-        }
+          # Create features.json
+          features = {
+              'feature_sets': {
+                  'small': [f'feature_{i}' for i in range(50)],
+                  'medium': [f'feature_{i}' for i in range(200)],
+                  'large': [f'feature_{i}' for i in range(n_features)]
+              },
+              'targets': [f'target_{i}' for i in range(20)]
+          }
 
-        with open('test_data/features_production.json', 'w') as f:
-            json.dump(features, f, indent=2)
+          with open('test_data/features_production.json', 'w') as f:
+              json.dump(features, f, indent=2)
 
-        print(f'✅ Production test data generated: {n_rows} rows, {n_features} features')
-        "
+          print(f'✅ Production test data generated: {n_rows} rows, {n_features} features')
+          "
 
-    - name: Run production readiness tests
-      run: |
-        cd numerai_minimal
-        python -m pytest pipeline/tests/test_production_readiness.py -v -s --durations=0
+      - name: Run production readiness tests
+        run: |
+          cd numerai_minimal
+          python -m pytest pipeline/tests/test_production_readiness.py -v -s --durations=0
 
-    - name: Generate production readiness report
-      run: |
-        cd numerai_minimal
-        echo '## Production Readiness Report' > production_report.md
-        echo '- ✅ Unit tests passed' >> production_report.md
-        echo '- ✅ Integration tests passed' >> production_report.md
-        echo '- ✅ Performance tests passed' >> production_report.md
-        echo '- ✅ Production readiness tests completed' >> production_report.md
-        echo '' >> production_report.md
-        echo '### Test Results:' >> production_report.md
-        cat production_report.md
+      - name: Generate production readiness report
+        run: |
+          cd numerai_minimal
+          echo '## Production Readiness Report' > production_report.md
+          echo '- ✅ Unit tests passed' >> production_report.md
+          echo '- ✅ Integration tests passed' >> production_report.md
+          echo '- ✅ Performance tests passed' >> production_report.md
+          echo '- ✅ Production readiness tests completed' >> production_report.md
+          echo '' >> production_report.md
+          echo '### Test Results:' >> production_report.md
+          cat production_report.md
 
-    - name: Upload production report
-      uses: actions/upload-artifact@v3
-      with:
-        name: production-readiness-report
-        path: numerai_minimal/production_report.md
+      - name: Upload production report
+        uses: actions/upload-artifact@v3
+        with:
+          name: production-readiness-report
+          path: numerai_minimal/production_report.md
 
   # Scheduled production tests (weekly)
   scheduled-production:
     runs-on: ubuntu-latest
-    if: github.event.schedule == '0 2 * * 1'  # Every Monday at 2 AM UTC
+    if: github.event.schedule == '0 2 * * 1' # Every Monday at 2 AM UTC
     needs: [unit-tests, integration-tests, performance-tests]
 
     steps:
-    - name: Set up Git LFS
-      run: |
-        git lfs install
-        git lfs pull
+      - name: Set up Git LFS
+        run: |
+          git lfs install
+          git lfs pull
 
-    - uses: actions/checkout@v4
-      with:
-        lfs: true
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.13"
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.13"
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest psutil memory-profiler
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest psutil memory-profiler
 
-    - name: Check available data files
-      run: |
-        cd numerai_minimal
-        if [ -f "../v5.0/train.parquet" ]; then
-          echo "✅ Real Numerai data available for testing"
-          ls -lh ../v5.0/
-        else
-          echo "⚠️  Real data not available, using synthetic data"
-        fi
+      - name: Check available data files
+        run: |
+          cd numerai_minimal
+          if [ -f "../v5.0/train.parquet" ]; then
+            echo "✅ Real Numerai data available for testing"
+            ls -lh ../v5.0/
+          else
+            echo "⚠️  Real data not available, using synthetic data"
+          fi
 
-    - name: Run scheduled production tests
-      run: |
-        cd numerai_minimal
-        # Use real data if available, otherwise synthetic
-        if [ -f "../v5.0/train.parquet" ]; then
-          echo "Running with real Numerai data"
-          pytest pipeline/tests/test_production_readiness.py -v -s -k "real_data"
-        else
-          echo "Running with synthetic data"
-          pytest pipeline/tests/test_production_readiness.py -v -s -k "not real_data"
-        fi
+      - name: Run scheduled production tests
+        run: |
+          cd numerai_minimal
+          # Use real data if available, otherwise synthetic
+          if [ -f "../v5.0/train.parquet" ]; then
+            echo "Running with real Numerai data"
+            pytest pipeline/tests/test_production_readiness.py -v -s -k "real_data"
+          else
+            echo "Running with synthetic data"
+            pytest pipeline/tests/test_production_readiness.py -v -s -k "not real_data"
+          fi
 
-    - name: Notify on failures
-      if: failure()
-      run: |
-        echo "Production tests failed - check logs and fix issues"
+      - name: Notify on failures
+        if: failure()
+        run: |
+          echo "Production tests failed - check logs and fix issues"

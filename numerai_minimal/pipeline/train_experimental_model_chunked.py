@@ -270,8 +270,9 @@ def main():
     ap.add_argument('--validation-data', required=True, help='Enhanced validation parquet with engineered features')
     ap.add_argument('--target-col', default='adaptive_target')
     ap.add_argument('--new-feature-names', default=None, help='Path to JSON list of engineered feature names')
-    ap.add_argument('--curated-features', default=None, help='Path to JSON file with curated features')
-    ap.add_argument('--features-json', default=None, help='Optional features.json to pin baseline features')
+    ap.add_argument('--features-json', '--curated-features', dest='curated_features', default=None,
+                    help='Path to JSON file with curated features')
+    ap.add_argument('--base-features-json', default=None, help='Optional features.json to pin baseline features')
     ap.add_argument('--output-model', required=True)
     ap.add_argument('--chunk-rows', type=int, default=250_000)
     ap.add_argument('--val-rows', type=int, default=200_000)
@@ -297,7 +298,7 @@ def main():
         args.output_model,
         new_feature_names_path=args.new_feature_names,
         curated_features_file=args.curated_features,
-        features_json=args.features_json,
+        features_json=args.base_features_json,
         chunk_rows=args.chunk_rows,
         val_rows=args.val_rows,
         total_rounds=args.total_rounds,

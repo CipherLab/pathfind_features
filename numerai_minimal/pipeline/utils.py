@@ -35,23 +35,95 @@ def reduce_mem_usage(df, _verbose=True):
 
 
 class RegimeDetector:
-    """Detects market regimes using VIX and market correlation analysis."""
+    """Detect market regimes from a local VIX time series."""
 
-    def __init__(self, vix_window: int = 60, corr_window: int = 30,
-                 vix_high_threshold: float = 75, vix_low_threshold: float = 25):
-        """
-        Initialize regime detector.
+    def __init__(self,
+                 vix_window: int = 60,
+                 corr_window: int = 30,
+                 vix_high_threshold: float = 75,
+                 vix_low_threshold: float = 25,
+                 vix_high_level: float = 25.0,
+                 vix_low_level: float = 15.0):
+        """Initialize detector with percentile and absolute thresholds.
 
         Args:
-            vix_window: Rolling window for VIX percentile calculation
-            corr_window: Rolling window for correlation analysis
-            vix_high_threshold: Percentile threshold for high volatility regime
-            vix_low_threshold: Percentile threshold for low volatility regime
+            vix_window: Rolling window for VIX percentile calculation.
+            corr_window: Rolling window for correlation analysis (unused).
+            vix_high_threshold: Percentile threshold for high volatility regime.
+            vix_low_threshold: Percentile threshold for low volatility regime.
+            vix_high_level: Absolute VIX level considered "crisis" when
+                ``use_percentiles`` is False.
+            vix_low_level: Absolute VIX level considered "grind" when
+                ``use_percentiles`` is False.
         """
+
         self.vix_window = vix_window
         self.corr_window = corr_window
         self.vix_high_threshold = vix_high_threshold
         self.vix_low_threshold = vix_low_threshold
+        self.vix_high_level = vix_high_level
+        self.vix_low_level = vix_low_level
+
+    # ------------------------------------------------------------------
+    # Loading and labelling helpers
+    # ------------------------------------------------------------------
+    def load_vix_data(self, eras: list, vix_file: str | None = None) -> pd.DataFrame:
+        """Load or simulate VIX data for the provided eras.
+
+        The function first attempts to read ``vix_file`` which is expected to
+        contain ``era`` and ``vix`` columns.  If the file cannot be read, a
+        pseudo VIX series is generated locally to keep the pipeline
+        self‑contained.
+        """
+
+        if vix_file and Path(vix_file).exists():
+            try:
+                df = pd.read_csv(vix_file)
+                df['era'] = df['era'].astype(str)
+                return df[['era', 'vix']]
+            except Exception as exc:  # pragma: no cover - fallback path
+                logging.warning(f"Failed to load VIX data from {vix_file}: {exc}")
+
+        # Fallback: simulate VIX values with a bounded random walk
+        np.random.seed(42)
+        current = 20.0
+        values = []
+        for _ in eras:
+            change = np.random.normal(0, 2)
+            current = float(np.clip(current + change, 10, 50))
+            values.append(current)
+        return pd.DataFrame({'era': [str(e) for e in eras], 'vix': values})
+
+    def _classify_by_level(self, vix_data: pd.DataFrame) -> pd.DataFrame:
+        df = vix_data.copy()
+        df['era'] = df['era'].astype(str)
+        cond_high = df['vix'] > self.vix_high_level
+        cond_low = df['vix'] < self.vix_low_level
+        df['vix_regime'] = np.select(
+            [cond_high, cond_low],
+            ['high_vol_crisis', 'low_vol_grind'],
+            default='transition'
+        )
+        return df
+
+    def classify_eras(self, era_series: pd.Series, vix_data: pd.DataFrame,
+                      use_percentiles: bool = False) -> pd.Series:
+        """Assign regimes to each era in ``era_series``.
+
+        Args:
+            era_series: Series of eras to label.
+            vix_data: DataFrame with ``era`` and ``vix`` columns.
+            use_percentiles: If ``True`` use rolling percentile thresholds,
+                otherwise rely on absolute ``vix_high_level``/``vix_low_level``.
+        """
+
+        if use_percentiles:
+            labelled = self.detect_regimes(vix_data)
+        else:
+            labelled = self._classify_by_level(vix_data)
+
+        mapping = labelled.set_index('era')['vix_regime']
+        return era_series.astype(str).map(mapping).fillna('unknown')
 
     def detect_regimes(self, vix_data: pd.DataFrame, market_data: Optional[pd.DataFrame] = None,
                       era_column: str = 'era') -> pd.DataFrame:

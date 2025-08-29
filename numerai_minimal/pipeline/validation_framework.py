@@ -25,6 +25,10 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from sklearn.model_selection import TimeSeriesSplit
 import warnings
+
+from utils import RegimeDetector
+from metrics_utils import safe_sharpe, apply_transaction_cost
+
 warnings.filterwarnings('ignore')
 
 
@@ -87,85 +91,91 @@ class EraAwareCrossValidator:
 
 
 def load_vix_data(eras: list, vix_file: str | None = None) -> pd.DataFrame:
+    """Wrapper around :class:`utils.RegimeDetector` for backwards compatibility."""
+    detector = RegimeDetector()
+    return detector.load_vix_data([str(e) for e in eras], vix_file)
+
+
+def categorize_eras_by_vix(era_series: pd.Series, vix_data: pd.DataFrame,
+                           use_percentiles: bool = False,
+                           vix_high: float = 25,
+                           vix_low: float = 15) -> pd.Series:
+    """Categorize eras into regimes using :class:`utils.RegimeDetector`.
+
+    Parameters
+    ----------
+    era_series:
+        Series of eras to label.
+    vix_data:
+        DataFrame with ``era`` and ``vix`` columns.
+    use_percentiles:
+        When ``True`` use rolling percentile thresholds instead of absolute
+        levels.
+    vix_high, vix_low:
+        Absolute VIX levels used when ``use_percentiles`` is ``False``.
     """
-    Load VIX data and align it with the given eras.
-    If vix_file is provided, loads from that file. Otherwise, simulates data.
-    """
-    if vix_file and os.path.exists(vix_file):
-        try:
-            vix_df = pd.read_csv(vix_file)
-            # Assume CSV has 'era' and 'vix' columns
-            vix_df['era'] = vix_df['era'].astype(str)
-            return vix_df[['era', 'vix']]
-        except Exception as e:
-            print(f"Warning: Failed to load VIX data from {vix_file}: {e}")
-            print("Falling back to simulated data...")
 
-    print("Simulating VIX data loading...")
-    # Create more realistic VIX data with some temporal patterns
-    np.random.seed(42)  # For reproducibility
-    n_eras = len(eras)
-
-    # Generate VIX values with some autocorrelation and regime-like behavior
-    vix_values = []
-    current_vix = 20  # Starting VIX level
-
-    for i in range(n_eras):
-        # Add some random walk with mean reversion
-        change = np.random.normal(0, 2)
-        current_vix = max(10, min(50, current_vix + change))
-        vix_values.append(current_vix)
-
-    return pd.DataFrame({
-        'era': eras,
-        'vix': vix_values
-    })
-
-
-def categorize_eras_by_vix(era_series: pd.Series, vix_data: pd.DataFrame) -> pd.Series:
-    """Categorize eras into volatility regimes based on VIX levels."""
-    era_to_vix = vix_data.set_index('era')['vix']
-    
-    def get_regime(era):
-        vix = era_to_vix.get(era, np.nan)
-        if pd.isna(vix):
-            return "unknown"
-        if vix > 25:
-            return "high_vol_crisis"
-        elif vix < 15:
-            return "low_vol_grind"
-        else:
-            return "transition"
-            
-    return era_series.apply(get_regime)
+    detector = RegimeDetector(vix_high_level=vix_high, vix_low_level=vix_low)
+    return detector.classify_eras(era_series, vix_data, use_percentiles=use_percentiles)
 
 
 def calculate_realistic_sharpe(era_correlations: List[float], transaction_cost_bps: float = 25) -> Dict:
-    """Calculate Sharpe ratio with transaction cost adjustments."""
+    """Calculate Sharpe ratio and apply a transaction cost adjustment."""
     if not era_correlations:
-        return {"sharpe_ratio": 0, "sharpe_with_tc": 0, "tc_impact": 0}
+        return {
+            "sharpe_ratio": 0.0,
+            "sharpe_with_tc": 0.0,
+            "tc_impact": 0.0,
+            "mean_correlation": 0.0,
+            "std_correlation": 0.0,
+        }
 
-    mean_corr = np.mean(era_correlations)
-    std_corr = np.std(era_correlations, ddof=1)
-    sharpe = mean_corr / std_corr if std_corr > 0 else 0
-
-    # Estimate transaction cost impact
-    assumed_volatility = 0.15  # 15% annual volatility
-    tc_impact = transaction_cost_bps / 10000 / assumed_volatility
-    sharpe_with_tc = max(0.0, float(sharpe - tc_impact))
+    sharpe, _ = safe_sharpe(era_correlations)
+    sharpe = float(sharpe) if sharpe == sharpe else 0.0  # NaN-safe
+    sharpe_with_tc, tc_impact = apply_transaction_cost(sharpe, transaction_cost_bps)
 
     return {
         "sharpe_ratio": sharpe,
-        "sharpe_with_tc": sharpe_with_tc,
-        "tc_impact": tc_impact,
-        "mean_correlation": mean_corr,
-        "std_correlation": std_corr
+        "sharpe_with_tc": float(sharpe_with_tc),
+        "tc_impact": float(tc_impact),
+        "mean_correlation": float(np.mean(era_correlations)),
+        "std_correlation": float(np.std(era_correlations, ddof=1)),
+    }
+
+
+def bootstrap_confidence_intervals(values: List[float], tc_bps: float,
+                                  n_bootstrap: int = 1000,
+                                  ci: float = 0.95) -> Dict[str, float]:
+    """Bootstrap confidence intervals for mean correlation and Sharpe."""
+    if not values or n_bootstrap <= 0:
+        return {}
+
+    values = np.asarray(values, dtype=float)
+    boot_means = []
+    boot_sharpes = []
+    for _ in range(n_bootstrap):
+        sample = np.random.choice(values, size=len(values), replace=True)
+        boot_means.append(float(np.mean(sample)))
+        s, _ = safe_sharpe(sample)
+        s = float(s) if s == s else 0.0
+        s_tc, _ = apply_transaction_cost(s, tc_bps)
+        boot_sharpes.append(float(s_tc))
+
+    lower = (1 - ci) / 2 * 100
+    upper = (1 + ci) / 2 * 100
+    return {
+        'mean_corr_ci_low': float(np.percentile(boot_means, lower)),
+        'mean_corr_ci_high': float(np.percentile(boot_means, upper)),
+        'sharpe_with_tc_ci_low': float(np.percentile(boot_sharpes, lower)),
+        'sharpe_with_tc_ci_high': float(np.percentile(boot_sharpes, upper)),
     }
 
 
 def train_and_evaluate_fold(X_train: pd.DataFrame, y_train: pd.Series,
                            X_val: pd.DataFrame, y_val: pd.Series,
-                           params: Dict, era_val: pd.Series, vix_regimes: pd.Series) -> Dict:
+                           params: Dict, era_val: pd.Series, vix_regimes: pd.Series,
+                           transaction_cost_bps: float = 25,
+                           bootstrap_iters: int = 0) -> Dict:
     """Train model and evaluate on a single fold, including regime analysis."""
     train_set = lgb.Dataset(X_train, label=y_train)
     lgb_params = params.copy()
@@ -179,8 +189,9 @@ def train_and_evaluate_fold(X_train: pd.DataFrame, y_train: pd.Series,
     # Overall correlation
     overall_corr, _ = spearmanr(y_val, val_preds)
 
-    # Era-level correlations
-    era_correlations = []
+    # Era-level correlations and regime grouping
+    era_correlations: list[float] = []
+    regime_corrs: dict[str, list[float]] = {}
     for era in sorted(era_val.unique()):
         era_mask = era_val == era
         era_targets = y_val[era_mask]
@@ -188,26 +199,33 @@ def train_and_evaluate_fold(X_train: pd.DataFrame, y_train: pd.Series,
         if len(era_targets) > 1:
             era_corr, _ = spearmanr(era_targets, era_predictions)
             era_correlations.append(era_corr)
+            regime = vix_regimes[era_mask].iloc[0]
+            regime_corrs.setdefault(regime, []).append(era_corr)
 
-    # Regime-level correlations
-    regime_metrics = {}
-    for regime in vix_regimes.unique():
-        regime_mask = vix_regimes == regime
-        regime_targets = y_val[regime_mask]
-        regime_preds = val_preds[regime_mask]
-        if len(regime_targets) > 1:
-            regime_corr, _ = spearmanr(regime_targets, regime_preds)
-            regime_metrics[f'corr_{regime}'] = regime_corr
+    # Regime-level metrics
+    regime_metrics: Dict[str, float] = {}
+    for regime, corrs in regime_corrs.items():
+        stats = calculate_realistic_sharpe(corrs, transaction_cost_bps)
+        regime_metrics[f'corr_{regime}'] = float(np.mean(corrs))
+        regime_metrics[f'sharpe_{regime}'] = stats['sharpe_ratio']
+        regime_metrics[f'sharpe_with_tc_{regime}'] = stats['sharpe_with_tc']
 
-    sharpe_results = calculate_realistic_sharpe(era_correlations)
+    sharpe_results = calculate_realistic_sharpe(era_correlations, transaction_cost_bps)
 
-    return {
+    result = {
         "overall_correlation": overall_corr,
         "era_correlations": era_correlations,
         **sharpe_results,
         **regime_metrics,
         "n_eras": len(era_correlations)
     }
+
+    if bootstrap_iters > 0:
+        result.update(
+            bootstrap_confidence_intervals(era_correlations, transaction_cost_bps, bootstrap_iters)
+        )
+
+    return result
 
 
 def aggregate_validation_results(fold_results: List[Dict], vix_data: pd.DataFrame, era_series: pd.Series) -> Dict:
@@ -223,7 +241,13 @@ def aggregate_validation_results(fold_results: List[Dict], vix_data: pd.DataFram
             aggregated[f'std_{key}'] = float(np.std(values))
 
     # Aggregate regime-specific metrics
-    regime_keys = [k for k in fold_results[0].keys() if k.startswith('corr_')]
+    regime_metric_prefixes = ('corr_', 'sharpe_', 'sharpe_with_tc_')
+    regime_keys = set()
+    for res in fold_results:
+        for k in res.keys():
+            if any(k.startswith(pref) for pref in regime_metric_prefixes):
+                regime_keys.add(k)
+
     for key in regime_keys:
         values = [result.get(key, np.nan) for result in fold_results]
         valid_values = [v for v in values if not np.isnan(v)]
@@ -266,12 +290,18 @@ def print_validation_summary(aggregated_results: Dict):
         print(f"  {regime}: {count} eras")
 
     print("\nRegime-Specific Performance:")
-    for key, value in aggregated_results.items():
-        if key.startswith('mean_corr_'):
-            regime = key.replace('mean_corr_', '')
-            std_key = key.replace('mean_', 'std_')
+    for regime in regime_dist.keys():
+        parts = []
+        corr_key = f'mean_corr_{regime}'
+        if corr_key in aggregated_results:
+            std_key = f'std_corr_{regime}'
             std_val = aggregated_results.get(std_key, 0)
-            print(f"  {regime}: {value:.4f} (std: {std_val:.4f})")
+            parts.append(f"corr={aggregated_results[corr_key]:.4f} (std: {std_val:.4f})")
+        sharpe_key = f'mean_sharpe_with_tc_{regime}'
+        if sharpe_key in aggregated_results:
+            parts.append(f"sharpe_tc={aggregated_results[sharpe_key]:.2f}")
+        if parts:
+            print(f"  {regime}: " + ", ".join(parts))
 
     print("\nVIX Statistics:")
     vix_stats = aggregated_results.get('vix_stats', {})
@@ -283,7 +313,12 @@ def print_validation_summary(aggregated_results: Dict):
 
 def run_validation(data_file: str, features_file: str,
                    params_file: str, vix_file: str | None = None,
-                   n_splits: int = 5, gap_eras: int = 100) -> Dict:
+                   n_splits: int = 5, gap_eras: int = 100,
+                   tc_bps: float = 25,
+                   bootstrap_iters: int = 0,
+                   use_percentiles: bool = False,
+                   vix_high: float = 25,
+                   vix_low: float = 15) -> Dict:
     """Run the full validation framework."""
     print("=" * 80)
     print("RUNNING VALIDATION FRAMEWORK")
@@ -301,7 +336,9 @@ def run_validation(data_file: str, features_file: str,
 
     # Load VIX data and categorize eras
     vix_data = load_vix_data(era_series.unique().tolist(), vix_file)
-    vix_regimes = categorize_eras_by_vix(era_series, vix_data)
+    vix_regimes = categorize_eras_by_vix(
+        era_series, vix_data, use_percentiles=use_percentiles, vix_high=vix_high, vix_low=vix_low
+    )
 
     # Initialize cross-validator
     cv = EraAwareCrossValidator(n_splits=n_splits, gap_eras=gap_eras)
@@ -322,7 +359,17 @@ def run_validation(data_file: str, features_file: str,
         print(f"  Train: {len(X_train):,} samples, {len(era_val.unique())} eras")
         print(f"  Val:   {len(X_val):,} samples, {len(era_val.unique())} eras")
 
-        fold_result = train_and_evaluate_fold(X_train, y_train, X_val, y_val, best_params, era_val, regimes_val)
+        fold_result = train_and_evaluate_fold(
+            X_train,
+            y_train,
+            X_val,
+            y_val,
+            best_params,
+            era_val,
+            regimes_val,
+            transaction_cost_bps=tc_bps,
+            bootstrap_iters=bootstrap_iters,
+        )
         fold_results.append(fold_result)
 
         print(f"  Overall correlation: {fold_result['overall_correlation']:.4f}")

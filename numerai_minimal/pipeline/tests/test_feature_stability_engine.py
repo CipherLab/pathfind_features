@@ -114,6 +114,18 @@ class TestFeatureStabilityEngine:
         assert 'stable_1' in curated['stable_features']
         assert 'stable_2' in curated['stable_features']
 
+    def test_sign_flipping_features_excluded_from_curated(self):
+        """Ensure features that flip sign across regimes are removed."""
+        features = [f'feature_{i}' for i in range(10)]
+        stability_results = self.engine.evaluate_feature_stability(self.mock_df, features)
+        curated = self.engine.curate_features(stability_results, features)
+
+        flip_features = [f'feature_{i}' for i in range(3, 6)]  # constructed sign-flip features
+        for f in flip_features:
+            assert f not in curated['stable_features']
+
+        assert len(curated['stable_features']) > 0
+
 
 def test_run_feature_stability_analysis():
     """Test the main feature stability analysis function."""

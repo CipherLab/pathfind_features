@@ -5,6 +5,7 @@ __all__ = [
     "era_sanity",
     "safe_sharpe",
     "feature_condition_number",
+    "apply_transaction_cost",
 ]
 
 def era_sanity(x, atol: float = 1e-12):
@@ -56,3 +57,23 @@ def feature_condition_number(X, eps: float = 1e-10, shrink: float = 0.0):
     w = np.linalg.eigvalsh(C)
     w = np.maximum(w, eps)
     return float(w[-1] / w[0]), float(w[0])
+
+
+def apply_transaction_cost(sharpe: float, tc_bps: float = 25, annual_volatility: float = 0.15) -> tuple[float, float]:
+    """Adjust a Sharpe ratio for transaction costs.
+
+    Args:
+        sharpe: Raw Sharpe ratio.
+        tc_bps: Transaction cost in basis points.
+        annual_volatility: Assumed annualised volatility used to translate
+            transaction costs into Sharpe ratio impact.
+
+    Returns:
+        Tuple of ``(adjusted_sharpe, tc_impact)`` where ``tc_impact`` is the
+        amount subtracted from the raw Sharpe ratio.
+    """
+
+    tc_impact = tc_bps / 10000.0 / annual_volatility
+    adjusted = sharpe - tc_impact
+    return adjusted, tc_impact
+

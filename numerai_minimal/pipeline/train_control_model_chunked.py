@@ -320,7 +320,8 @@ def main():
     ap.add_argument('--train-data', required=True)
     ap.add_argument('--validation-data', required=True)
     ap.add_argument('--target-col', default='target')
-    ap.add_argument('--curated-features', default=None, help='Path to JSON file with curated features')
+    ap.add_argument('--features-json', '--curated-features', dest='curated_features', default=None,
+                    help='Path to JSON file with curated features')
     ap.add_argument('--output-model', required=True)
     ap.add_argument('--chunk-rows', type=int, default=250_000)
     ap.add_argument('--val-rows', type=int, default=200_000)

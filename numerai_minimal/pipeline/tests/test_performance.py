@@ -23,36 +23,6 @@ from feature_stability_engine import FeatureStabilityEngine
 class TestPerformanceBenchmarks:
     """Performance benchmarks for key pipeline operations."""
 
-    @pytest.fixture
-    def benchmark_dataset(self):
-        """Create dataset sized for performance benchmarking."""
-        np.random.seed(42)
-        n_rows = 25000  # Medium size for performance testing
-        n_features = 100
-
-        # Create eras
-        eras = np.repeat(range(1, 126), n_rows // 125)  # 125 eras
-
-        data = {'era': eras}
-
-        # Create features
-        for i in range(n_features):
-            data[f'feature_{i}'] = np.random.randn(n_rows)
-
-        # Create targets
-        for i in range(5):
-            data[f'target_{i}'] = np.random.randn(n_rows) * 0.05
-
-        df = pd.DataFrame(data)
-
-        # Create VIX data
-        vix_data = pd.DataFrame({
-            'era': range(1, 126),
-            'vix': np.random.uniform(10, 40, 125)
-        })
-
-        return {'dataframe': df, 'vix_data': vix_data}
-
     def test_cross_validation_performance(self, benchmark_dataset, benchmark):
         """Benchmark era-aware cross-validation performance."""
         df = benchmark_dataset['dataframe']

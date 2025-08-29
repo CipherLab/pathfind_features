@@ -37,45 +37,6 @@ from utils import reduce_mem_usage
 class TestDataLoading:
     """Test data loading capabilities with production-scale data."""
 
-    @pytest.fixture
-    def production_data(self, tmp_path):
-        """Generate production-scale synthetic data."""
-        np.random.seed(42)
-        n_rows = 50000  # Production subset
-        n_features = 200
-
-        data = {
-            'era': np.repeat(range(1, 251), n_rows // 250),  # 250 eras
-        }
-
-        # Simulate different feature types
-        for i in range(n_features):
-            if i % 4 == 0:
-                data[f'feature_{i}'] = np.random.randn(n_rows)
-            elif i % 4 == 1:
-                data[f'feature_{i}'] = np.random.exponential(1, n_rows)
-            elif i % 4 == 2:
-                data[f'feature_{i}'] = np.random.uniform(-1, 1, n_rows)
-            else:
-                data[f'feature_{i}'] = np.random.beta(2, 2, n_rows)
-
-        # Add targets
-        for i in range(10):
-            data[f'target_{i}'] = np.random.randn(n_rows) * 0.05
-
-        df = pd.DataFrame(data)
-
-        # Save to parquet
-        parquet_path = tmp_path / "train_production.parquet"
-        df.to_parquet(parquet_path, index=False)
-
-        return {
-            'dataframe': df,
-            'path': parquet_path,
-            'n_rows': n_rows,
-            'n_features': n_features
-        }
-
     def test_parquet_loading_performance(self, production_data):
         """Test Parquet file loading performance."""
         try:

@@ -76,7 +76,9 @@ def build_adaptive_target(
     for era, g in df.groupby(era_col):
         w_list: Optional[List[float]] = weights_by_era.get(str(era))
         w = np.array(w_list, dtype=float) if w_list is not None else fallback_w
-        out[g.index] = np.dot(g[target_cols].to_numpy(dtype=float), w)
+        # Fix indexing issue by using positional indices
+        mask = df[era_col] == era
+        out[mask] = np.dot(g[target_cols].to_numpy(dtype=float), w)
     return pd.Series(out, index=df.index)
 
 

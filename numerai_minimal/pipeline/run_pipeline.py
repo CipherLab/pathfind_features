@@ -631,7 +631,7 @@ def enhanced_run_pipeline(args):
         validation_results = validation_framework.run_validation(
             data_file=stage3_output if not args.disable_pathfinding else stage1_output,
             features_file=curated_features_file,
-            params_file="dump/hyperparameter_tuning_optimized/best_params_sharpe.json",  # This needs to be configurable
+            params_file="../v5.0/best_params.json",  # This needs to be configurable
             vix_file=args.vix_file,
             n_splits=5,
             gap_eras=100

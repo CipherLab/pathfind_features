@@ -173,7 +173,7 @@ def train_and_evaluate_fold(X_train: pd.DataFrame, y_train: pd.Series,
     lgb_params['metric'] = 'l2'
     lgb_params['seed'] = 42
 
-    model = lgb.train(lgb_params, train_set, num_boost_round=200, verbose_eval=False)
+    model = lgb.train(lgb_params, train_set, num_boost_round=200)
     val_preds = model.predict(X_val)
 
     # Overall correlation
@@ -281,21 +281,30 @@ def print_validation_summary(aggregated_results: Dict):
     print(f"  Max: {vix_stats.get('max', 0):.1f}")
 
 
-def run_validation(data_file: str, features_file: str,
-                   params_file: str, vix_file: str | None = None,
-                   n_splits: int = 5, gap_eras: int = 100) -> Dict:
-    """Run the full validation framework."""
+def run_honest_validation(data_file: str, features_file: str,
+                         params_file: str, vix_file: str | None = None,
+                         n_splits: int = 5, gap_eras: int = 100) -> Dict:
+    """Run an honest validation framework that predicts live performance."""
     print("=" * 80)
-    print("RUNNING VALIDATION FRAMEWORK")
+    print("RUNNING HONEST VALIDATION FRAMEWORK")
     print("=" * 80)
 
     # Load data
     pf = pq.ParquetFile(data_file)
     df = pf.read().to_pandas()
     with open(features_file, 'r') as f:
-        features = json.load(f)
+        features_dict = json.load(f)
     
+    # Extract feature list from dict structure
+    if isinstance(features_dict, dict) and 'feature_sets' in features_dict:
+        features = features_dict['feature_sets'].get('medium', [])
+    elif isinstance(features_dict, list):
+        features = features_dict
+    else:
+        raise ValueError(f"Invalid features file format: {features_file}")
+
     X = df[features].astype('float32')
+    X['era'] = df['era']  # Add era column for cross-validation
     y = df['adaptive_target'].astype('float32')
     era_series = df['era']
 
@@ -303,14 +312,16 @@ def run_validation(data_file: str, features_file: str,
     vix_data = load_vix_data(era_series.unique().tolist(), vix_file)
     vix_regimes = categorize_eras_by_vix(era_series, vix_data)
 
-    # Initialize cross-validator
-    cv = EraAwareCrossValidator(n_splits=n_splits, gap_eras=gap_eras)
+    # Initialize cross-validator with larger gap for honesty
+    cv = EraAwareCrossValidator(n_splits=n_splits, gap_eras=max(gap_eras, 200))
 
     # Load parameters
     with open(params_file, 'r') as f:
         best_params = json.load(f)
 
     fold_results = []
+    time_machine_results = []
+
     for fold_idx, (train_idx, val_idx) in enumerate(cv.split(X)):
         print(f"\nFold {fold_idx + 1}/{n_splits}:")
 
@@ -322,17 +333,102 @@ def run_validation(data_file: str, features_file: str,
         print(f"  Train: {len(X_train):,} samples, {len(era_val.unique())} eras")
         print(f"  Val:   {len(X_val):,} samples, {len(era_val.unique())} eras")
 
-        fold_result = train_and_evaluate_fold(X_train, y_train, X_val, y_val, best_params, era_val, regimes_val)
+        # Remove era column from X before training (LightGBM doesn't need it)
+        X_train_features = X_train.drop(columns=['era'])
+        X_val_features = X_val.drop(columns=['era'])
+        
+        fold_result = train_and_evaluate_fold(X_train_features, y_train, X_val_features, y_val, best_params, era_val, regimes_val)
         fold_results.append(fold_result)
 
         print(f"  Overall correlation: {fold_result['overall_correlation']:.4f}")
         print(f"  Sharpe with TC: {fold_result['sharpe_with_tc']:.2f}")
 
+        # Run time machine test for this fold
+        train_data = pd.DataFrame({'era': era_series.loc[train_idx], 'adaptive_target': y_train})
+        val_data = pd.DataFrame({'era': era_val, 'adaptive_target': y_val})
+
+        # Add VIX data for regime analysis
+        if vix_data is not None:
+            train_data = train_data.merge(vix_data, on='era', how='left')
+            val_data = val_data.merge(vix_data, on='era', how='left')
+
+        time_machine_result = run_time_machine_test(train_data, val_data, features,
+                                                   X_train_features.values, y_train.values,
+                                                   X_val_features.values, y_val.values)
+        time_machine_results.append(time_machine_result)
+
     # Aggregate and print results
     aggregated_results = aggregate_validation_results(fold_results, vix_data, era_series)
     print_validation_summary(aggregated_results)
 
-    return {"fold_results": fold_results, "aggregated": aggregated_results}
+    # Analyze time machine results
+    time_machine_summary = analyze_time_machine_results(time_machine_results)
+    print("\n" + "=" * 80)
+    print("TIME MACHINE TEST RESULTS")
+    print("=" * 80)
+    print(f"Average train correlation: {time_machine_summary['avg_train_corr']:.4f}")
+    print(f"Average test correlation: {time_machine_summary['avg_test_corr']:.4f}")
+    print(f"Average drop: {time_machine_summary['avg_drop']:.2f}")
+    print(f"Honesty score: {time_machine_summary['honesty_score']:.2f}")
+    print(f"Validation is {'HONEST' if time_machine_summary['honesty_score'] > 0.8 else 'QUESTIONABLE'}")
+
+    return {
+        "fold_results": fold_results,
+        "aggregated": aggregated_results,
+        "time_machine": time_machine_summary,
+        "honest_assessment": time_machine_summary['honesty_score'] > 0.8
+    }
+
+
+def run_time_machine_test(train_data: pd.DataFrame, test_data: pd.DataFrame,
+                         features: list, X_train: np.ndarray, y_train: np.ndarray,
+                         X_test: np.ndarray, y_test: np.ndarray) -> dict:
+    """Run a time machine test to check if validation predicts live performance."""
+    from honest_frameworks import HonestValidationFramework
+
+    honest_validator = HonestValidationFramework(min_era_gap=200)
+
+    # Create dataframes with features
+    train_df = pd.DataFrame(X_train, columns=features)
+    train_df['adaptive_target'] = y_train
+    train_df['era'] = train_data['era'].values
+
+    test_df = pd.DataFrame(X_test, columns=features)
+    test_df['adaptive_target'] = y_test
+    test_df['era'] = test_data['era'].values
+
+    # Add VIX if available
+    if 'vix' in train_data.columns:
+        train_df['vix'] = train_data['vix'].values
+        test_df['vix'] = test_data['vix'].values
+
+    return honest_validator.time_machine_test(train_df, test_df, features, 'adaptive_target')
+
+
+def analyze_time_machine_results(time_machine_results: list) -> dict:
+    """Analyze results from time machine tests."""
+    if not time_machine_results:
+        return {"error": "No time machine results"}
+
+    train_corrs = [r['train_correlation'] for r in time_machine_results if not np.isnan(r['train_correlation'])]
+    test_corrs = [r['test_correlation'] for r in time_machine_results if not np.isnan(r['test_correlation'])]
+    drops = [r['drop'] for r in time_machine_results if not np.isnan(r['drop'])]
+    honesty_scores = [r['brutal_honesty_score'] for r in time_machine_results if not np.isnan(r['brutal_honesty_score'])]
+
+    return {
+        "avg_train_corr": np.mean(train_corrs) if train_corrs else 0,
+        "avg_test_corr": np.mean(test_corrs) if test_corrs else 0,
+        "avg_drop": np.mean(drops) if drops else 0,
+        "honesty_score": np.mean(honesty_scores) if honesty_scores else 0,
+        "n_tests": len(time_machine_results)
+    }
+
+
+def run_validation(data_file: str, features_file: str,
+                   params_file: str, vix_file: str | None = None,
+                   n_splits: int = 5, gap_eras: int = 100) -> Dict:
+    """Run the full validation framework - now defaults to honest validation."""
+    return run_honest_validation(data_file, features_file, params_file, vix_file, n_splits, gap_eras)
 
 
 def main():

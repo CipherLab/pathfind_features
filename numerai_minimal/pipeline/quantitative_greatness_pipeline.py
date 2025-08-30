@@ -58,24 +58,36 @@ class QuantitativeGreatnessPipeline:
         return run_dir
 
     def phase_1_honest_validation(self, data_file: str, features_file: str,
-                                 params_file: str, vix_file: Optional[str] = None) -> Dict:
+                                 params_file: str, vix_file: Optional[str] = None,
+                                 market_tickers: Optional[List[str]] = None,
+                                 market_agg: str = 'ret',
+                                 market_mapping_csv: Optional[str] = None,
+                                 refresh_market: bool = False) -> Dict:
         """Phase 1: Stop the Validation Lies."""
         self.logger.info("📊 PHASE 1: Stop the Validation Lies")
         self.logger.info("Goal: Make validation predict live performance within 0.005 correlation")
 
         from validation_framework import run_honest_validation
 
+        assert self.run_dir is not None, "setup_run_directory must be called before running phases"
         phase1_dir = os.path.join(self.run_dir, "phase1_honest_validation")
         os.makedirs(phase1_dir, exist_ok=True)
 
-        # Run honest validation with time machine tests
+        # Market cache dir for Phase 1
+        phase1_cache_dir = os.path.join(phase1_dir, 'market_cache')
+
         validation_results = run_honest_validation(
             data_file=data_file,
             features_file=features_file,
             params_file=params_file,
             vix_file=vix_file,
             n_splits=5,
-            gap_eras=200  # Large gap for honesty
+            gap_eras=200,  # Large gap for honesty
+            market_tickers=market_tickers,
+            market_agg=market_agg,
+            market_era_map=market_mapping_csv,
+            refresh_market=refresh_market,
+            market_cache_dir=phase1_cache_dir,
         )
 
         # Save phase 1 results
@@ -96,7 +108,8 @@ class QuantitativeGreatnessPipeline:
                              vix_file: Optional[str] = None, smoke_test: bool = False,
                              market_tickers: Optional[List[str]] = None,
                              market_agg: str = 'ret',
-                             market_mapping_csv: Optional[str] = None) -> Dict:
+                             market_mapping_csv: Optional[str] = None,
+                             refresh_market: bool = False) -> Dict:
         """Phase 2: The Great Feature Purge."""
         self.logger.info("🔥 PHASE 2: The Great Feature Purge")
         if smoke_test:
@@ -106,6 +119,7 @@ class QuantitativeGreatnessPipeline:
 
         from feature_purge_engine import run_feature_purge
 
+        assert self.run_dir is not None, "setup_run_directory must be called before running phases"
         phase2_dir = os.path.join(self.run_dir, "phase2_feature_purge")
         os.makedirs(phase2_dir, exist_ok=True)
 
@@ -121,14 +135,14 @@ class QuantitativeGreatnessPipeline:
             sample_size=1000 if smoke_test else 5000,  # Smaller sample for smoke test
             market_tickers=market_tickers,
             market_agg=market_agg,
-            market_mapping_csv=market_mapping_csv
+            market_mapping_csv=market_mapping_csv,
+            refresh_market=refresh_market,
         )
 
         # Handle case where no features survived
         if not purge_results['final_features']:
             self.logger.warning("No features survived purge - using fallback features")
             # Load original features and use a small subset
-            import json
             with open(features_file, 'r') as f:
                 original_data = json.load(f)
 
@@ -162,13 +176,15 @@ class QuantitativeGreatnessPipeline:
                                    vix_file: Optional[str] = None,
                                    market_tickers: Optional[List[str]] = None,
                                    market_agg: str = 'ret',
-                                   market_mapping_csv: Optional[str] = None) -> Dict:
+                                   market_mapping_csv: Optional[str] = None,
+                                   refresh_market: bool = False) -> Dict:
         """Phase 3: Embrace Target Selection Reality."""
         self.logger.info("🎯 PHASE 3: Embrace Target Selection Reality")
         self.logger.info("Goal: Train specialized models for different market regimes")
 
         from regime_aware_model import run_regime_aware_training
 
+        assert self.run_dir is not None, "setup_run_directory must be called before running phases"
         phase3_dir = os.path.join(self.run_dir, "phase3_regime_aware")
         os.makedirs(phase3_dir, exist_ok=True)
 
@@ -178,9 +194,11 @@ class QuantitativeGreatnessPipeline:
             features_file=curated_features_file,
             output_dir=phase3_dir,
             vix_file=vix_file,
+            target_col='target',  # Use raw target instead of adaptive_target
             market_tickers=market_tickers,
             market_agg=market_agg,
-            market_mapping_csv=market_mapping_csv
+            market_mapping_csv=market_mapping_csv,
+            refresh_market=refresh_market,
         )
 
         phase3_results = {
@@ -209,17 +227,29 @@ class QuantitativeGreatnessPipeline:
         self.logger.info("🚀 STARTING QUANTITATIVE GREATNESS TRANSFORMATION")
         self.logger.info("=" * 80)
 
+    assert self.run_dir is not None, "setup_run_directory must be called before running the transformation"
+
         # Phase 1: Honest Validation
-        phase1_results = self.phase_1_honest_validation(data_file, features_file, params_file, vix_file)
+        phase1_results = self.phase_1_honest_validation(
+            data_file, features_file, params_file, vix_file,
+            market_tickers=market_tickers,
+            market_agg=market_agg,
+            market_mapping_csv=market_mapping_csv,
+            refresh_market=refresh_market,
+        )
 
         # Phase 2: Feature Purge
-        phase2_results = self.phase_2_feature_purge(data_file, features_file, vix_file, smoke_test,
-                                                   market_tickers, market_agg, market_mapping_csv)
+        phase2_results = self.phase_2_feature_purge(
+            data_file, features_file, vix_file, smoke_test,
+            market_tickers, market_agg, market_mapping_csv, refresh_market
+        )
 
         # Phase 3: Regime-Aware Models
         curated_features_file = phase2_results['curated_features_file']
-        phase3_results = self.phase_3_regime_aware_models(data_file, curated_features_file, vix_file,
-                                                         market_tickers, market_agg, market_mapping_csv)
+        phase3_results = self.phase_3_regime_aware_models(
+            data_file, curated_features_file, vix_file,
+            market_tickers, market_agg, market_mapping_csv, refresh_market
+        )
 
         # Final assessment
         final_assessment = self._create_final_assessment(phase1_results, phase2_results, phase3_results)

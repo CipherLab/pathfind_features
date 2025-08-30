@@ -221,10 +221,10 @@ def _create_realistic_vix_simulation(period: str = "max", interval: str = "1d") 
     vix_values[0] = 18.0
 
     # Parameters for realistic VIX simulation
-    mean_reversion_speed = 0.1
+    mean_reversion_speed = 0.05  # Slower mean reversion
     long_term_mean = 20.0
-    volatility_of_volatility = 0.3
-    jump_probability = 0.02  # Occasional spikes
+    volatility_of_volatility = 0.4  # Higher volatility
+    jump_probability = 0.03  # More frequent jumps
 
     for i in range(1, n_days):
         # Mean reversion
@@ -238,7 +238,7 @@ def _create_realistic_vix_simulation(period: str = "max", interval: str = "1d") 
 
         # Occasional jumps (market stress events)
         if np.random.random() < jump_probability:
-            jump = np.random.exponential(10)  # Large positive jump
+            jump = np.random.exponential(15)  # Larger positive jump
             vix_values[i] = vix_values[i-1] + drift + shock + jump
         else:
             vix_values[i] = vix_values[i-1] + drift + shock

@@ -96,6 +96,12 @@ import os
 
 print('Generating synthetic test datasets...')
 
+# Ensure the test_data directory exists in case the calling
+# environment didn't create it beforehand. Without this check,
+# attempting to write the parquet files below would raise an
+# OSError when the directory is missing.
+os.makedirs('test_data', exist_ok=True)
+
 # Small dataset for unit tests
 np.random.seed(42)
 n_rows_small = 5000

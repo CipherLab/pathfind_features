@@ -284,9 +284,12 @@ def run_regime_aware_training(data_file: str, features_file: str,
             df = df.merge(vix_df[['era', 'vix']], on='era', how='left')
         elif market_tickers:
             try:
-                from .market_data import build_era_ticker_features
-            except Exception:
-                from market_data import build_era_ticker_features
+                import market_data
+                build_era_ticker_features = market_data.build_era_ticker_features
+            except ImportError:
+                # Fallback if import fails
+                logger.warning("Could not import market_data module")
+                raise
             try:
                 md = build_era_ticker_features(df['era'], market_tickers, agg=market_agg,
                                               mapping_mode='ordinal', mapping_csv=market_mapping_csv,
@@ -307,15 +310,12 @@ def run_regime_aware_training(data_file: str, features_file: str,
                 # Backfill missing
                 df['vix'] = df['vix'].fillna(df['vix'].median())
             except Exception as e:
-                logger.warning(f"Failed to fetch market data: {e}")
-                # Simulate VIX based on era for demo purposes
-                np.random.seed(42)
-                df['vix'] = np.random.normal(20, 5, len(df))
+                logger.error(f"Failed to fetch market data: {e}")
+                logger.error("Cannot proceed without real market data for regime classification")
+                raise ValueError(f"Market data fetch failed: {e}")
         else:
-            logger.warning("No VIX data available, using simulated regime classification")
-            # Simulate VIX based on era for demo purposes
-            np.random.seed(42)
-            df['vix'] = np.random.normal(20, 5, len(df))
+            logger.error("No VIX data source available - must provide market_tickers or vix_file")
+            raise ValueError("VIX data is required for regime-aware training. Provide --market-tickers '^VIX' or --vix-file path")
 
     # Load features
     with open(features_file, 'r') as f:

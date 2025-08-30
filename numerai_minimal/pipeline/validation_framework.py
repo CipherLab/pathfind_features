@@ -305,7 +305,7 @@ def run_honest_validation(data_file: str, features_file: str,
 
     X = df[features].astype('float32')
     X['era'] = df['era']  # Add era column for cross-validation
-    y = df['adaptive_target'].astype('float32')
+    y = df['target'].astype('float32')
     era_series = df['era']
 
     # Load VIX data and categorize eras
@@ -344,8 +344,8 @@ def run_honest_validation(data_file: str, features_file: str,
         print(f"  Sharpe with TC: {fold_result['sharpe_with_tc']:.2f}")
 
         # Run time machine test for this fold
-        train_data = pd.DataFrame({'era': era_series.loc[train_idx], 'adaptive_target': y_train})
-        val_data = pd.DataFrame({'era': era_val, 'adaptive_target': y_val})
+        train_data = pd.DataFrame({'era': era_series.loc[train_idx], 'target': y_train})
+        val_data = pd.DataFrame({'era': era_val, 'target': y_val})
 
         # Add VIX data for regime analysis
         if vix_data is not None:
@@ -390,11 +390,11 @@ def run_time_machine_test(train_data: pd.DataFrame, test_data: pd.DataFrame,
 
     # Create dataframes with features
     train_df = pd.DataFrame(X_train, columns=features)
-    train_df['adaptive_target'] = y_train
+    train_df['target'] = y_train
     train_df['era'] = train_data['era'].values
 
     test_df = pd.DataFrame(X_test, columns=features)
-    test_df['adaptive_target'] = y_test
+    test_df['target'] = y_test
     test_df['era'] = test_data['era'].values
 
     # Add VIX if available
@@ -402,7 +402,7 @@ def run_time_machine_test(train_data: pd.DataFrame, test_data: pd.DataFrame,
         train_df['vix'] = train_data['vix'].values
         test_df['vix'] = test_data['vix'].values
 
-    return honest_validator.time_machine_test(train_df, test_df, features, 'adaptive_target')
+    return honest_validator.time_machine_test(train_df, test_df, features, 'target')
 
 
 def analyze_time_machine_results(time_machine_results: list) -> dict:

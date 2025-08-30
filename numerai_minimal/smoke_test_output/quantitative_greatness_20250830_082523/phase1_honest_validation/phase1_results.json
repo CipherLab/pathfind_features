@@ -1,0 +1,127 @@
+{
+  "phase": "honest_validation",
+  "validation_results": {
+    "fold_results": [
+      {
+        "overall_correlation": 0.007865762476272345,
+        "era_correlations": [
+          -0.007955461341310642,
+          0.01674552181609877,
+          0.022073945478687275,
+          0.006034768538916928,
+          -0.018822386676712963,
+          -0.004560733237845489,
+          -0.0015813008253321439,
+          0.01626162690280934,
+          0.01012533657165558,
+          -0.021991527439012087,
+          -0.02212642629909514,
+          0.0031717539316644763,
+          0.015081854707979108,
+          0.010428674128971232,
+          0.00518280470606408,
+          0.01359174380494299,
+          0.0022221447064275555,
+          0.04145036661452222,
+          0.048027807173864075,
+          0.05213295664731027,
+          0.030629578339238638,
+          0.01205063332539687,
+          0.0139678722123242,
+          -0.0017605473768514206,
+          -0.017428391440421288,
+          -0.01541848189236746
+        ],
+        "sharpe_ratio": 0.39796935914144943,
+        "sharpe_with_tc": 0.38130269247478277,
+        "tc_impact": 0.016666666666666666,
+        "mean_correlation": 0.007982082041458652,
+        "std_correlation": 0.020057026648178704,
+        "corr_high_vol_crisis": 0.007865762476272345,
+        "n_eras": 26
+      },
+      {
+        "overall_correlation": 0.0032605292512694474,
+        "era_correlations": [
+          -0.014121503644717277,
+          -0.009865534597237416,
+          -0.004124978364143948,
+          -0.005192809612769783,
+          0.0036437134766507417,
+          0.012888775872778053,
+          0.015410679086598624,
+          0.013643018511663368,
+          0.02287518184778877,
+          0.041325993356278505,
+          0.01082972238530086,
+          -0.007758657287254789,
+          -0.02078090160721443,
+          -0.030581856860815288,
+          -0.020161160589479508,
+          -0.011898074990140011,
+          -0.011103682767250775,
+          -0.006729402681723812,
+          0.01643791239137239,
+          0.027234716938884185,
+          0.02928840045601652,
+          0.013180206572086565,
+          0.008485290001312353,
+          0.005412656684942815,
+          0.008380097923748374,
+          0.0005196067223804214
+        ],
+        "sharpe_ratio": 0.1955698836466885,
+        "sharpe_with_tc": 0.17890321698002185,
+        "tc_impact": 0.016666666666666666,
+        "mean_correlation": 0.003355284970194443,
+        "std_correlation": 0.01715645020404069,
+        "corr_high_vol_crisis": 0.0008261361201197168,
+        "corr_transition": 0.032241381114112774,
+        "n_eras": 26
+      }
+    ],
+    "aggregated": {
+      "mean_overall_correlation": 0.005563145863770896,
+      "std_overall_correlation": 0.0023026166125014484,
+      "mean_sharpe_ratio": 0.296769621394069,
+      "std_sharpe_ratio": 0.10119973774738046,
+      "mean_sharpe_with_tc": 0.2801029547274023,
+      "std_sharpe_with_tc": 0.10119973774738046,
+      "mean_mean_correlation": 0.005668683505826548,
+      "std_mean_correlation": 0.0023133985356321046,
+      "mean_std_correlation": 0.018606738426109697,
+      "std_std_correlation": 0.0014502882220690065,
+      "mean_corr_high_vol_crisis": 0.00434594929819603,
+      "std_corr_high_vol_crisis": 0.003519813178076314,
+      "regime_distribution": {
+        "high_vol_crisis": 1566449,
+        "transition": 601063,
+        "low_vol_grind": 578758
+      },
+      "vix_stats": {
+        "mean": 27.310758298208242,
+        "std": 12.164645096489693,
+        "min": 10.0,
+        "max": 50.0
+      }
+    },
+    "time_machine": {
+      "avg_train_corr": 0.13874503153500511,
+      "avg_test_corr": 0.004956665556048202,
+      "avg_drop": 0.9695140544456846,
+      "honesty_score": 0.0,
+      "n_tests": 2
+    },
+    "honest_assessment": "False"
+  },
+  "honesty_assessment": "False",
+  "recommendations": [
+    "\u274c Validation is lying to you - correlation drops significantly on future data",
+    "\ud83d\udca1 Increase era gaps to 200+ eras between train/validation",
+    "\ud83d\udca1 Test on completely different time periods (2019 vs 2023)",
+    "\ud83d\udca5 Massive correlation drop detected - model is regime-specific",
+    "\ud83c\udfaf Consider regime-aware modeling approach",
+    "\ud83d\udcc9 Sharpe ratio after transaction costs is too low",
+    "\ud83d\udcb0 Focus on risk-adjusted returns, not raw correlation"
+  ]
+}

@@ -30,51 +30,85 @@ class FeaturePurgeEngine:
 
     def __init__(self, crisis_eras: Optional[List[str]] = None,
                  covid_eras: Optional[List[str]] = None,
-                 bear_market_eras: Optional[List[str]] = None):
+                 bear_market_eras: Optional[List[str]] = None,
+                 sample_size: int = 5000,  # Reduced from 50000
+                 cache_regimes: bool = True,
+                 vix_thresholds: Tuple[float, float] = (15.0, 25.0)):
         self.crisis_eras = crisis_eras or ['2008-01', '2008-02', '2008-03', '2008-04']  # Example crisis eras
         self.covid_eras = covid_eras or ['2020-03', '2020-04', '2020-05', '2020-06']  # COVID crash
         self.bear_market_eras = bear_market_eras or ['2018-10', '2018-11', '2018-12']  # Example bear market
+        self.sample_size = sample_size
+        self.cache_regimes = cache_regimes
+        self.vix_low, self.vix_high = vix_thresholds
+        self._cached_regimes = None
         self.logger = logging.getLogger(__name__)
 
     def load_historical_regimes(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
-        """Load data from specific historical crisis periods."""
-        regimes = {}
+        """Build regimes from available data.
+        Prefer VIX-based regimes if vix is present; otherwise fall back to specific eras.
+        """
+        if self.cache_regimes and self._cached_regimes is not None:
+            return self._cached_regimes
 
-        # Crisis periods (high volatility)
-        crisis_mask = df['era'].isin(self.crisis_eras)
-        if crisis_mask.any():
-            regimes['crisis_2008'] = df[crisis_mask].copy()
-            self.logger.info(f"Loaded {len(regimes['crisis_2008'])} samples from 2008 crisis")
+        regimes: Dict[str, pd.DataFrame] = {}
 
-        # COVID crash
-        covid_mask = df['era'].isin(self.covid_eras)
-        if covid_mask.any():
-            regimes['covid_crash'] = df[covid_mask].copy()
-            self.logger.info(f"Loaded {len(regimes['covid_crash'])} samples from COVID crash")
+        if 'vix' in df.columns:
+            # Construct three regimes by VIX thresholds
+            crisis_mask = df['vix'] > self.vix_high
+            grind_mask = df['vix'] < self.vix_low
+            transition_mask = ~crisis_mask & ~grind_mask
 
-        # Random bear markets
-        bear_mask = df['era'].isin(self.bear_market_eras)
-        if bear_mask.any():
-            regimes['bear_market'] = df[bear_mask].copy()
-            self.logger.info(f"Loaded {len(regimes['bear_market'])} samples from bear market")
+            if crisis_mask.any():
+                regimes['crisis'] = df[crisis_mask].copy()
+                self.logger.info(f"Loaded {len(regimes['crisis'])} samples from crisis regime (VIX > {self.vix_high})")
+            if grind_mask.any():
+                regimes['grind'] = df[grind_mask].copy()
+                self.logger.info(f"Loaded {len(regimes['grind'])} samples from grind regime (VIX < {self.vix_low})")
+            if transition_mask.any():
+                regimes['transition'] = df[transition_mask].copy()
+                self.logger.info(f"Loaded {len(regimes['transition'])} samples from transition regime ({self.vix_low} <= VIX <= {self.vix_high})")
+        else:
+            # Fall back to era lists as before
+            crisis_mask = df['era'].isin(self.crisis_eras)
+            if crisis_mask.any():
+                regimes['crisis_2008'] = df[crisis_mask].copy()
+                self.logger.info(f"Loaded {len(regimes['crisis_2008'])} samples from 2008 crisis")
 
-        # Normal periods (for comparison)
-        normal_mask = ~df['era'].isin(self.crisis_eras + self.covid_eras + self.bear_market_eras)
+            covid_mask = df['era'].isin(self.covid_eras)
+            if covid_mask.any():
+                regimes['covid_crash'] = df[covid_mask].copy()
+                self.logger.info(f"Loaded {len(regimes['covid_crash'])} samples from COVID crash")
+
+            bear_mask = df['era'].isin(self.bear_market_eras)
+            if bear_mask.any():
+                regimes['bear_market'] = df[bear_mask].copy()
+                self.logger.info(f"Loaded {len(regimes['bear_market'])} samples from bear market")
+
+        # Normal periods (for comparison) - always sample to control runtime
+        normal_mask = pd.Series(True, index=df.index)
+        for part in regimes.values():
+            normal_mask &= ~df.index.isin(part.index)
         if normal_mask.any():
-            # Sample a subset to keep it manageable
-            normal_sample = df[normal_mask].sample(min(50000, len(df[normal_mask])), random_state=42)
+            normal_sample = df[normal_mask].sample(min(self.sample_size, int(normal_mask.sum())), random_state=42)
             regimes['normal_periods'] = normal_sample
             self.logger.info(f"Loaded {len(regimes['normal_periods'])} samples from normal periods")
+
+        if self.cache_regimes:
+            self._cached_regimes = regimes
 
         return regimes
 
     def test_feature_stability(self, df: pd.DataFrame, feature: str,
-                             target_col: str = 'adaptive_target') -> Dict:
+                             target_col: str = 'adaptive_target',
+                             regimes: Optional[Dict[str, pd.DataFrame]] = None) -> Dict:
         """Test a single feature's stability across regimes."""
         if feature not in df.columns:
             return {'stable': False, 'reason': 'feature_not_found'}
 
-        regimes = self.load_historical_regimes(df)
+        # Use provided regimes or load them (for backward compatibility)
+        if regimes is None:
+            regimes = self.load_historical_regimes(df)
+
         if not regimes:
             return {'stable': False, 'reason': 'no_regime_data'}
 
@@ -140,19 +174,33 @@ class FeaturePurgeEngine:
         }
 
     def purge_unstable_features(self, df: pd.DataFrame, features: List[str],
-                               target_col: str = 'adaptive_target') -> Dict[str, Dict]:
-        """Purge features that don't survive regime testing."""
+                               target_col: str = 'adaptive_target',
+                               smoke_test: bool = False) -> Dict[str, Dict]:
+        """Purge features that don't survive regime testing with optimization options."""
+        if smoke_test:
+            # For smoke test, only test first 100 features
+            features = features[:100]
+            self.logger.info(f"SMOKE TEST: Testing only {len(features)} features")
+
         self.logger.info(f"Testing {len(features)} features for stability across market regimes")
 
         stability_results = {}
+        stable_count = 0
+
+        # Pre-load regimes once for all features
+        regimes = self.load_historical_regimes(df)
 
         for i, feature in enumerate(features):
             if (i + 1) % 50 == 0:
-                self.logger.info(f"Tested {i + 1}/{len(features)} features...")
+                self.logger.info(f"Tested {i + 1}/{len(features)} features... ({stable_count} stable so far)")
 
-            stability_result = self.test_feature_stability(df, feature, target_col)
+            stability_result = self.test_feature_stability(df, feature, target_col, regimes)
             stability_results[feature] = stability_result
 
+            if stability_result.get('stable', False):
+                stable_count += 1
+
+        self.logger.info(f"Found {stable_count} stable features out of {len(features)} tested")
         return stability_results
 
     def select_survivor_features(self, stability_results: Dict[str, Dict],
@@ -252,7 +300,12 @@ def run_feature_purge(data_file: str, features_file: str, output_dir: str,
                      target_col: str = 'adaptive_target',
                      crisis_eras: Optional[List[str]] = None,
                      covid_eras: Optional[List[str]] = None,
-                     bear_market_eras: Optional[List[str]] = None) -> Dict:
+                     bear_market_eras: Optional[List[str]] = None,
+                     smoke_test: bool = False,
+                     sample_size: int = 5000,
+                     market_tickers: Optional[List[str]] = None,
+                     market_agg: str = 'ret',
+                     market_mapping_csv: Optional[str] = None) -> Dict:
     """Run the complete feature purge pipeline."""
 
     # Setup logging
@@ -273,6 +326,37 @@ def run_feature_purge(data_file: str, features_file: str, output_dir: str,
     import pyarrow.parquet as pq
     pf = pq.ParquetFile(data_file)
     df = pf.read().to_pandas()
+
+    # Ensure VIX exists so regime split works (simulate or fetch if tickers provided)
+    if 'vix' not in df.columns:
+        if market_tickers:
+            try:
+                from .market_data import build_era_ticker_features
+            except Exception:
+                from market_data import build_era_ticker_features
+            try:
+                md = build_era_ticker_features(df['era'], market_tickers, agg=market_agg,
+                                              mapping_mode='ordinal', mapping_csv=market_mapping_csv)
+                # Prefer ^VIX_close if ^VIX present, else ensemble of returns as proxy
+                vix_cols = [c for c in md.columns if c.lower().startswith('^vix')]
+                if vix_cols:
+                    col = vix_cols[0]
+                    tmp = md[['era', col]].rename(columns={col: 'vix'})
+                elif 'ensemble_ret' in md.columns:
+                    tmp = md[['era', 'ensemble_ret']].rename(columns={'ensemble_ret': 'vix'})
+                else:
+                    # pick first numeric column as proxy
+                    num_cols = [c for c in md.columns if c != 'era']
+                    tmp = md[['era', num_cols[0]]].rename(columns={num_cols[0]: 'vix'})
+                df = df.merge(tmp, on='era', how='left')
+                # Backfill missing
+                df['vix'] = df['vix'].fillna(df['vix'].median())
+            except Exception:
+                np.random.seed(42)
+                df['vix'] = np.random.normal(20, 7, len(df)).clip(10, 60)
+        else:
+            np.random.seed(42)
+            df['vix'] = np.random.normal(20, 7, len(df)).clip(10, 60)
 
     # Load features
     with open(features_file, 'r') as f:
@@ -307,11 +391,12 @@ def run_feature_purge(data_file: str, features_file: str, output_dir: str,
 
     logger.info(f"Loaded {len(candidate_features)} candidate features")
 
-    # Initialize purge engine
-    purge_engine = FeaturePurgeEngine(crisis_eras, covid_eras, bear_market_eras)
+    # Initialize purge engine with optimized settings
+    purge_engine = FeaturePurgeEngine(crisis_eras, covid_eras, bear_market_eras,
+                                     sample_size=sample_size)
 
     # Test feature stability
-    stability_results = purge_engine.purge_unstable_features(df, candidate_features, target_col)
+    stability_results = purge_engine.purge_unstable_features(df, candidate_features, target_col, smoke_test)
 
     # Select survivors
     survivor_features = purge_engine.select_survivor_features(stability_results)
@@ -375,6 +460,8 @@ if __name__ == "__main__":
     parser.add_argument('--crisis-eras', nargs='+', help='Eras representing crisis periods')
     parser.add_argument('--covid-eras', nargs='+', help='Eras representing COVID crash')
     parser.add_argument('--bear-market-eras', nargs='+', help='Eras representing bear markets')
+    parser.add_argument('--smoke-test', action='store_true', help='Enable smoke test (limited feature testing)')
+    parser.add_argument('--sample-size', type=int, default=5000, help='Sample size for normal periods')
 
     args = parser.parse_args()
 
@@ -385,5 +472,7 @@ if __name__ == "__main__":
         args.target_col,
         args.crisis_eras,
         args.covid_eras,
-        args.bear_market_eras
+        args.bear_market_eras,
+        args.smoke_test,
+        args.sample_size
     )

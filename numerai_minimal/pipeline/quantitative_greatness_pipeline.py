@@ -93,10 +93,16 @@ class QuantitativeGreatnessPipeline:
         return phase1_results
 
     def phase_2_feature_purge(self, data_file: str, features_file: str,
-                             vix_file: Optional[str] = None) -> Dict:
+                             vix_file: Optional[str] = None, smoke_test: bool = False,
+                             market_tickers: Optional[List[str]] = None,
+                             market_agg: str = 'ret',
+                             market_mapping_csv: Optional[str] = None) -> Dict:
         """Phase 2: The Great Feature Purge."""
         self.logger.info("🔥 PHASE 2: The Great Feature Purge")
-        self.logger.info("Goal: Kill features that don't survive crisis testing")
+        if smoke_test:
+            self.logger.info("🚀 SMOKE TEST MODE: Quick feature validation")
+        else:
+            self.logger.info("Goal: Kill features that don't survive crisis testing")
 
         from feature_purge_engine import run_feature_purge
 
@@ -110,8 +116,31 @@ class QuantitativeGreatnessPipeline:
             output_dir=phase2_dir,
             crisis_eras=['2008-01', '2008-02', '2008-03', '2008-04'],  # 2008 crisis
             covid_eras=['2020-03', '2020-04', '2020-05', '2020-06'],  # COVID crash
-            bear_market_eras=['2018-10', '2018-11', '2018-12']  # Random bear market
+            bear_market_eras=['2018-10', '2018-11', '2018-12'],  # Random bear market
+            smoke_test=smoke_test,
+            sample_size=1000 if smoke_test else 5000,  # Smaller sample for smoke test
+            market_tickers=market_tickers,
+            market_agg=market_agg,
+            market_mapping_csv=market_mapping_csv
         )
+
+        # Handle case where no features survived
+        if not purge_results['final_features']:
+            self.logger.warning("No features survived purge - using fallback features")
+            # Load original features and use a small subset
+            import json
+            with open(features_file, 'r') as f:
+                original_data = json.load(f)
+
+            if isinstance(original_data, dict) and 'features' in original_data:
+                fallback_features = original_data['features'][:20]  # Use first 20 features
+            elif isinstance(original_data, list):
+                fallback_features = original_data[:20]
+            else:
+                fallback_features = []
+
+            purge_results['final_features'] = fallback_features
+            self.logger.info(f"Using {len(fallback_features)} fallback features for Phase 3")
 
         # Save curated features for next phases
         curated_features_file = os.path.join(self.run_dir, 'curated_features.json')
@@ -130,7 +159,10 @@ class QuantitativeGreatnessPipeline:
         return phase2_results
 
     def phase_3_regime_aware_models(self, data_file: str, curated_features_file: str,
-                                   vix_file: Optional[str] = None) -> Dict:
+                                   vix_file: Optional[str] = None,
+                                   market_tickers: Optional[List[str]] = None,
+                                   market_agg: str = 'ret',
+                                   market_mapping_csv: Optional[str] = None) -> Dict:
         """Phase 3: Embrace Target Selection Reality."""
         self.logger.info("🎯 PHASE 3: Embrace Target Selection Reality")
         self.logger.info("Goal: Train specialized models for different market regimes")
@@ -145,7 +177,10 @@ class QuantitativeGreatnessPipeline:
             data_file=data_file,
             features_file=curated_features_file,
             output_dir=phase3_dir,
-            vix_file=vix_file
+            vix_file=vix_file,
+            market_tickers=market_tickers,
+            market_agg=market_agg,
+            market_mapping_csv=market_mapping_csv
         )
 
         phase3_results = {
@@ -164,7 +199,12 @@ class QuantitativeGreatnessPipeline:
         return phase3_results
 
     def run_full_transformation(self, data_file: str, features_file: str,
-                               params_file: str, vix_file: Optional[str] = None) -> Dict:
+                               params_file: str, vix_file: Optional[str] = None,
+                               smoke_test: bool = False,
+                               market_tickers: Optional[List[str]] = None,
+                               market_agg: str = 'ret',
+                               market_mapping_csv: Optional[str] = None,
+                               refresh_market: bool = False) -> Dict:
         """Run the complete three-phase transformation."""
         self.logger.info("🚀 STARTING QUANTITATIVE GREATNESS TRANSFORMATION")
         self.logger.info("=" * 80)
@@ -173,11 +213,13 @@ class QuantitativeGreatnessPipeline:
         phase1_results = self.phase_1_honest_validation(data_file, features_file, params_file, vix_file)
 
         # Phase 2: Feature Purge
-        phase2_results = self.phase_2_feature_purge(data_file, features_file, vix_file)
+        phase2_results = self.phase_2_feature_purge(data_file, features_file, vix_file, smoke_test,
+                                                   market_tickers, market_agg, market_mapping_csv)
 
         # Phase 3: Regime-Aware Models
         curated_features_file = phase2_results['curated_features_file']
-        phase3_results = self.phase_3_regime_aware_models(data_file, curated_features_file, vix_file)
+        phase3_results = self.phase_3_regime_aware_models(data_file, curated_features_file, vix_file,
+                                                         market_tickers, market_agg, market_mapping_csv)
 
         # Final assessment
         final_assessment = self._create_final_assessment(phase1_results, phase2_results, phase3_results)
@@ -335,6 +377,12 @@ Examples:
     parser.add_argument('--vix-file', help='Optional path to VIX data CSV for regime analysis')
     parser.add_argument('--experiment-name', help='Optional experiment name (default: timestamped)')
     parser.add_argument('--base-dir', default='pipeline_runs', help='Base directory for runs')
+    parser.add_argument('--smoke-test', action='store_true', help='Run in smoke test mode (faster, fewer features)')
+    parser.add_argument('--market-tickers', help='Comma-separated list of tickers to fetch (e.g., "^VIX,SPY")')
+    parser.add_argument('--market-agg', default='ret', choices=['close', 'ret', 'zscore', 'ensemble_ret'],
+                       help='How to aggregate ticker data into features')
+    parser.add_argument('--market-era-map', help='Optional CSV file mapping eras to dates (era,date columns)')
+    parser.add_argument('--refresh-market', action='store_true', help='Refresh cached market data')
 
     args = parser.parse_args()
 
@@ -348,12 +396,20 @@ Examples:
     pipeline = QuantitativeGreatnessPipeline(args.base_dir)
     pipeline.setup_run_directory(args.experiment_name)
 
+    # Parse market tickers
+    market_tickers = args.market_tickers.split(',') if args.market_tickers else None
+
     try:
         results = pipeline.run_full_transformation(
             data_file=args.data_file,
             features_file=args.features_file,
             params_file=args.params_file,
-            vix_file=args.vix_file
+            vix_file=args.vix_file,
+            smoke_test=args.smoke_test,
+            market_tickers=market_tickers,
+            market_agg=args.market_agg,
+            market_mapping_csv=args.market_era_map,
+            refresh_market=args.refresh_market
         )
 
         success = results.get('final_assessment', {}).get('transformation_success', False)

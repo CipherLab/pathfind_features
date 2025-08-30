@@ -77,10 +77,10 @@ class RegimeAwareModelTrainer:
         X = df[features]
         y = df[target_col]
 
-        # Default parameters optimized for ranking
+        # Default parameters optimized for regression
         default_params = {
-            'objective': 'lambdarank',
-            'metric': 'ndcg',
+            'objective': 'regression',
+            'metric': 'l2',
             'boosting_type': 'gbdt',
             'num_leaves': 31,
             'learning_rate': 0.05,

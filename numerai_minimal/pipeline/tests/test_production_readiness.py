@@ -368,17 +368,18 @@ def memory_monitor():
     try:
         import psutil
         import os
+
+        process = psutil.Process(os.getpid())
+        initial_memory = process.memory_info().rss / 1024 / 1024
+
+        yield
+
+        final_memory = process.memory_info().rss / 1024 / 1024
+        memory_increase = final_memory - initial_memory
+
+        # Log significant memory increases
+        if memory_increase > 50:  # MB
+            print(f"⚠️  Test increased memory by {memory_increase:.1f}MB")
     except ImportError:
-        return  # Skip if psutil not available
-
-    process = psutil.Process(os.getpid())
-    initial_memory = process.memory_info().rss / 1024 / 1024
-
-    yield
-
-    final_memory = process.memory_info().rss / 1024 / 1024
-    memory_increase = final_memory - initial_memory
-
-    # Log significant memory increases
-    if memory_increase > 50:  # MB
-        print(f"⚠️  Test increased memory by {memory_increase:.1f}MB")
+        # psutil is optional; yield to keep fixture behavior consistent
+        yield

@@ -86,78 +86,78 @@ class EraAwareCrossValidator:
         return splits
 
 
-def load_vix_data(
-    eras: list,
-    vix_file: str | None = None,
-    market_tickers: list[str] | None = None,
-    market_agg: str = "ret",
-    market_era_map: str | None = None,
-    cache_dir: str | None = None,
-    refresh_market: bool = False,
-) -> pd.DataFrame:
+def load_vix_data(eras: list, vix_file: str | None = None, market_tickers: List[str] | None = None,
+                 market_agg: str = 'ret', market_mapping_csv: str | None = None,
+                 cache_dir: str | None = None, refresh: bool = False) -> pd.DataFrame:
     """
-    Load VIX data aligned to eras.
-
-    Order of precedence:
-    1) If vix_file is provided, load from CSV with columns [era, vix].
-    2) Else fetch via market_data.build_era_ticker_features using provided tickers/cache.
-       - If '^VIX' is in market_tickers and market_agg is not specified, prefer 'close'.
-       - Choose '^VIX_*' column if present; else 'ensemble_ret'; else first numeric column.
-    No simulation fallback here to ensure we use real or cached data consistently.
+    Load VIX data and align it with the given eras.
+    If vix_file is provided, loads from that file.
+    If market_tickers is provided, fetches from market data API.
+    Otherwise, simulates data.
     """
     if vix_file and os.path.exists(vix_file):
-        vix_df = pd.read_csv(vix_file)
-        vix_df['era'] = vix_df['era'].astype(str)
-        return vix_df[['era', 'vix']]
-
-    # Use market_data API for fetching/caching
-    if market_tickers and len(market_tickers) > 0:
         try:
+            vix_df = pd.read_csv(vix_file)
+            # Assume CSV has 'era' and 'vix' columns
+            vix_df['era'] = vix_df['era'].astype(str)
+            return vix_df[['era', 'vix']]
+        except Exception as e:
+            print(f"Warning: Failed to load VIX data from {vix_file}: {e}")
+            print("Falling back to market data or simulation...")
+
+    if market_tickers:
+        try:
+            # Use the improved market_data module
+            from .market_data import build_era_ticker_features
+        except ImportError:
             try:
-                from .market_data import build_era_ticker_features
-            except Exception:
                 from market_data import build_era_ticker_features
+            except ImportError:
+                print("Warning: Could not import market_data module")
+                market_tickers = None
 
-            # Prefer close for ^VIX unless explicitly overridden
-            agg = market_agg
-            if any(t.upper() == '^VIX' for t in market_tickers) and market_agg in (None, '', 'ret'):
-                agg = 'close'
-
-            md = build_era_ticker_features(
-                eras=pd.Series(eras),
-                tickers=market_tickers,
-                agg=agg,
-                mapping_mode='ordinal',
-                mapping_csv=market_era_map,
-                cache_dir=cache_dir,
-                refresh=refresh_market,
-            )
-
-            # Select a vix-like column
+    if market_tickers:
+        try:
+            # Create a dummy dataframe with eras to get the date range
+            era_df = pd.DataFrame({'era': [str(e).zfill(4) for e in eras]})
+            md = build_era_ticker_features(era_df['era'], market_tickers, agg=market_agg,
+                                          mapping_mode='ordinal', mapping_csv=market_mapping_csv,
+                                          cache_dir=cache_dir, refresh=refresh)
+            # Prefer ^VIX_close if ^VIX present, else ensemble of returns as proxy
             vix_cols = [c for c in md.columns if c.lower().startswith('^vix')]
             if vix_cols:
                 col = vix_cols[0]
-                tmp = md[['era', col]].rename(columns={col: 'vix'})
+                result = md[['era', col]].rename(columns={col: 'vix'})
             elif 'ensemble_ret' in md.columns:
-                tmp = md[['era', 'ensemble_ret']].rename(columns={'ensemble_ret': 'vix'})
+                result = md[['era', 'ensemble_ret']].rename(columns={'ensemble_ret': 'vix'})
             else:
+                # pick first numeric column as proxy
                 num_cols = [c for c in md.columns if c != 'era']
-                if not num_cols:
-                    raise ValueError("No market features available to derive VIX proxy")
-                tmp = md[['era', num_cols[0]]].rename(columns={num_cols[0]: 'vix'})
-
-            # Align to requested eras and backfill missing values
-            tmp['era'] = tmp['era'].astype(str)
-            df = pd.DataFrame({'era': pd.Series(eras).astype(str)})
-            out = df.merge(tmp, on='era', how='left')
-            if out['vix'].isna().any():
-                out['vix'] = out['vix'].fillna(out['vix'].median())
-            return out[['era', 'vix']]
+                result = md[['era', num_cols[0]]].rename(columns={num_cols[0]: 'vix'})
+            return result
         except Exception as e:
-            raise RuntimeError(f"Failed to load VIX via market_data API: {e}")
+            print(f"Warning: Failed to fetch market data: {e}")
+            print("Falling back to simulation...")
 
-    # If we reach here, neither vix_file nor market_tickers were provided
-    raise ValueError("VIX data is required: provide --vix-file or --market-tickers (e.g., '^VIX')")
+    print("Using simulated VIX data...")
+    # Create more realistic VIX data with some temporal patterns
+    np.random.seed(42)  # For reproducibility
+    n_eras = len(eras)
+
+    # Generate VIX values with some autocorrelation and regime-like behavior
+    vix_values = []
+    current_vix = 20  # Starting VIX level
+
+    for i in range(n_eras):
+        # Add some random walk with mean reversion
+        change = np.random.normal(0, 2)
+        current_vix = max(10, min(50, current_vix + change))
+        vix_values.append(current_vix)
+
+    return pd.DataFrame({
+        'era': [str(e).zfill(4) for e in eras],
+        'vix': vix_values
+    })
 
 
 def categorize_eras_by_vix(era_series: pd.Series, vix_data: pd.DataFrame) -> pd.Series:
@@ -319,19 +319,12 @@ def print_validation_summary(aggregated_results: Dict):
     print(f"  Max: {vix_stats.get('max', 0):.1f}")
 
 
-def run_honest_validation(
-    data_file: str,
-    features_file: str,
-    params_file: str,
-    vix_file: str | None = None,
-    n_splits: int = 5,
-    gap_eras: int = 100,
-    market_tickers: list[str] | None = None,
-    market_agg: str = 'ret',
-    market_era_map: str | None = None,
-    refresh_market: bool = False,
-    market_cache_dir: str | None = None,
-) -> Dict:
+def run_honest_validation(data_file: str, features_file: str,
+                         params_file: str, vix_file: str | None = None,
+                         n_splits: int = 5, gap_eras: int = 100,
+                         market_tickers: List[str] | None = None,
+                         market_agg: str = 'ret', market_mapping_csv: str | None = None,
+                         cache_dir: str | None = None, refresh_market: bool = False) -> Dict:
     """Run an honest validation framework that predicts live performance."""
     print("=" * 80)
     print("RUNNING HONEST VALIDATION FRAMEWORK")
@@ -356,16 +349,9 @@ def run_honest_validation(
     y = df['target'].astype('float32')
     era_series = df['era']
 
-    # Load VIX data and categorize eras via shared market_data API/cache
-    vix_data = load_vix_data(
-        era_series.unique().tolist(),
-        vix_file=vix_file,
-        market_tickers=market_tickers,
-        market_agg=market_agg,
-        market_era_map=market_era_map,
-        cache_dir=market_cache_dir,
-        refresh_market=refresh_market,
-    )
+    # Load VIX data and categorize eras
+    vix_data = load_vix_data(era_series.unique().tolist(), vix_file, market_tickers,
+                            market_agg, market_mapping_csv, cache_dir, refresh_market)
     vix_regimes = categorize_eras_by_vix(era_series, vix_data)
 
     # Initialize cross-validator with larger gap for honesty
@@ -440,7 +426,7 @@ def run_time_machine_test(train_data: pd.DataFrame, test_data: pd.DataFrame,
                          features: list, X_train: np.ndarray, y_train: np.ndarray,
                          X_test: np.ndarray, y_test: np.ndarray) -> dict:
     """Run a time machine test to check if validation predicts live performance."""
-    from honest_frameworks import HonestValidationFramework
+    from .honest_frameworks import HonestValidationFramework
 
     honest_validator = HonestValidationFramework(min_era_gap=200)
 

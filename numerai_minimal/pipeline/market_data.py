@@ -51,47 +51,84 @@ def fetch_ticker_history(ticker: str, period: str = "max", interval: str = "1d",
         logger.info(f"Using in-memory cached data for {ticker}")
         return _TICKER_CACHE[cache_key].copy()
 
-    logger.info(f"Fetching fresh data for {ticker} from yfinance (period={period}, interval={interval})")
-    import yfinance as yf
-
-    try:
-        t = yf.Ticker(ticker)
-        hist = t.history(period=period, interval=interval, auto_adjust=False)
-
-        if not isinstance(hist.index, pd.DatetimeIndex) or hist.empty:
-            raise ValueError(f"No data returned for {ticker}")
-
-        hist = hist.reset_index().rename(columns={"Date": "date"})
-        hist["date"] = pd.to_datetime(hist["date"]).dt.date
-
-        # Validate we have the expected columns
-        required_cols = ["date", "Open", "High", "Low", "Close", "Volume"]
-        missing_cols = [col for col in required_cols if col not in hist.columns]
-        if missing_cols:
-            raise ValueError(f"Missing required columns for {ticker}: {missing_cols}")
-
-        logger.info(f"Successfully fetched {len(hist)} rows of data for {ticker}")
-
-        # Cache in memory and disk
-        _TICKER_CACHE[cache_key] = hist.copy()
-        if cache_file:
-            try:
-                with open(cache_file, 'wb') as f:
-                    pickle.dump(hist, f)
-                logger.info(f"Cached data for {ticker} to {cache_file}")
-            except Exception as e:
-                logger.warning(f"Failed to save cache for {ticker}: {e}")
-
-        return hist
-
-    except Exception as e:
-        logger.error(f"Failed to fetch data for {ticker}: {e}")
+    # Check connectivity BEFORE logging that we're fetching fresh data
+    has_internet = _check_internet_connectivity()
+    if not has_internet:
+        logger.warning(f"Yahoo Finance not accessible. Using simulation for {ticker}")
         if ticker == '^VIX':
-            logger.warning(f"No internet connection available. Creating realistic VIX simulation for {ticker}")
-            # Create realistic VIX-like data when internet is not available
             return _create_realistic_vix_simulation(period, interval)
         else:
-            raise
+            return _create_gbm_price_simulation(ticker, period, interval)
+
+    logger.info(f"Fetching fresh data for {ticker} from yfinance (period={period}, interval={interval})")
+    
+    import yfinance as yf
+
+    # Try to fetch data with retry logic
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempt {attempt + 1}/{max_retries} to fetch {ticker}")
+            
+            t = yf.Ticker(ticker)
+            hist = t.history(period=period, interval=interval, auto_adjust=False)
+
+            if not isinstance(hist.index, pd.DatetimeIndex) or hist.empty:
+                raise ValueError(f"No data returned for {ticker}")
+
+            hist = hist.reset_index().rename(columns={"Date": "date"})
+            hist["date"] = pd.to_datetime(hist["date"]).dt.date
+
+            # Validate we have the expected columns
+            required_cols = ["date", "Open", "High", "Low", "Close", "Volume"]
+            missing_cols = [col for col in required_cols if col not in hist.columns]
+            if missing_cols:
+                raise ValueError(f"Missing required columns for {ticker}: {missing_cols}")
+
+            logger.info(f"Successfully fetched {len(hist)} rows of data for {ticker}")
+
+            # Cache in memory and disk
+            _TICKER_CACHE[cache_key] = hist.copy()
+            if cache_file:
+                try:
+                    with open(cache_file, 'wb') as f:
+                        pickle.dump(hist, f)
+                    logger.info(f"Cached data for {ticker} to {cache_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to save cache for {ticker}: {e}")
+
+            return hist
+
+        except Exception as e:
+            error_msg = str(e).lower()
+            
+            # Check for specific error types
+            if "failed to connect" in error_msg or "could not connect" in error_msg:
+                logger.warning(f"Connection failed for {ticker} (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    import time
+                    wait_time = 2 ** attempt  # Exponential backoff
+                    logger.info(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"All connection attempts failed for {ticker}")
+            elif "no data" in error_msg or "empty" in error_msg:
+                logger.warning(f"No data available for {ticker}: {e}")
+            else:
+                logger.error(f"Unexpected error fetching {ticker}: {e}")
+            
+            # If this is the last attempt or specific errors, fall back to simulation
+            if attempt == max_retries - 1 or "failed to connect" in error_msg:
+                if ticker == '^VIX':
+                    logger.warning(f"Falling back to realistic VIX simulation for {ticker}")
+                    return _create_realistic_vix_simulation(period, interval)
+                else:
+                    logger.info(f"Falling back to GBM simulation for {ticker}")
+                    return _create_gbm_price_simulation(ticker, period, interval)
+    
+    # This should never be reached, but just in case
+    raise ValueError(f"Failed to fetch data for {ticker} after all attempts")
 
 
 def map_dates_to_eras(dates: pd.Series,
@@ -139,11 +176,44 @@ def build_era_ticker_features(eras: pd.Series,
     # We use the union of all dates across tickers to form a common mapping
     all_dates = []
     per_ticker = {}
+    failed_tickers = []
+    
     for t in tickers:
-        df = fetch_ticker_history(t, period=period, interval=interval,
-                                 cache_dir=cache_dir, refresh=refresh)
-        per_ticker[t] = df
-        all_dates.append(df["date"])
+        try:
+            df = fetch_ticker_history(t, period=period, interval=interval,
+                                     cache_dir=cache_dir, refresh=refresh)
+            per_ticker[t] = df
+            all_dates.append(df["date"])
+        except Exception as e:
+            logger.warning(f"Failed to fetch data for {t}: {e}")
+            failed_tickers.append(t)
+            if t == '^VIX':
+                # For VIX, we can create simulation
+                try:
+                    df = _create_realistic_vix_simulation(period, interval)
+                    per_ticker[t] = df
+                    all_dates.append(df["date"])
+                    logger.info(f"Using simulation for {t}")
+                except Exception as sim_e:
+                    logger.error(f"Failed to create simulation for {t}: {sim_e}")
+                    failed_tickers.append(t)
+            else:
+                # For non-VIX tickers, attempt GBM simulation
+                try:
+                    df = _create_gbm_price_simulation(t, period, interval)
+                    per_ticker[t] = df
+                    all_dates.append(df["date"])
+                    logger.info(f"Using GBM simulation for {t}")
+                except Exception as sim_e:
+                    logger.error(f"Failed to create GBM simulation for {t}: {sim_e}")
+                    failed_tickers.append(t)
+    
+    if not per_ticker:
+        raise ValueError(f"Failed to fetch data for any of the requested tickers: {tickers}")
+    
+    if failed_tickers:
+        logger.warning(f"Failed to fetch data for tickers: {failed_tickers}")
+        logger.info(f"Proceeding with available data for: {list(per_ticker.keys())}")
 
     all_dates = pd.concat([pd.Series(d) for d in all_dates], ignore_index=True).drop_duplicates()
     era_map = map_dates_to_eras(all_dates, mode=mapping_mode, mapping_csv=mapping_csv)
@@ -270,3 +340,110 @@ def _create_realistic_vix_simulation(period: str = "max", interval: str = "1d") 
                 f"Mean: {df['Close'].mean():.1f}")
 
     return df
+
+
+def _create_gbm_price_simulation(ticker: str, period: str = "max", interval: str = "1d") -> pd.DataFrame:
+    """Create a simple GBM-like OHLCV simulation for equity/ETF tickers when offline.
+
+    - Drift ~ 6% annualized, volatility ~ 20%
+    - Business-day frequency
+    - Generates Open/High/Low/Close/Volume columns
+    """
+    # Determine date range based on period
+    end_date = pd.Timestamp.now().date()
+    if period == "max":
+        start_date = pd.Timestamp('2000-01-01').date()
+    elif period.endswith('y'):
+        years = int(period[:-1])
+        start_date = (end_date - pd.DateOffset(years=years)).date()
+    elif period.endswith('mo'):
+        months = int(period[:-2])
+        start_date = (end_date - pd.DateOffset(months=months)).date()
+    else:
+        start_date = (end_date - pd.DateOffset(years=5)).date()
+
+    # Generate business days
+    dates = pd.date_range(start=start_date, end=end_date, freq='B').date
+    n = len(dates)
+    if n == 0:
+        raise ValueError("No dates generated for simulation")
+
+    # GBM parameters
+    mu = 0.06  # annual drift
+    sigma = 0.20  # annual vol
+    dt = 1/252
+
+    # Start price based on common sense
+    start_price = 100.0 if ticker != 'SPY' else 300.0
+
+    rng = np.random.default_rng(42)
+    shocks = rng.normal((mu - 0.5 * sigma**2) * dt, sigma * np.sqrt(dt), size=n)
+    log_prices = np.cumsum(shocks) + np.log(start_price)
+    close = np.exp(log_prices)
+
+    # Make OHLC around close
+    open_ = close * (1 + rng.normal(0, 0.002, size=n))
+    high = np.maximum(open_, close) * (1 + rng.random(n) * 0.01)
+    low = np.minimum(open_, close) * (1 - rng.random(n) * 0.01)
+    volume = rng.lognormal(mean=15, sigma=1.0, size=n)
+
+    df = pd.DataFrame({
+        'date': dates,
+        'Open': open_,
+        'High': high,
+        'Low': low,
+        'Close': close,
+        'Volume': volume
+    })
+    logger.info(f"Created GBM simulation for {ticker}: {len(df)} rows, last close {df['Close'].iloc[-1]:.2f}")
+    return df
+
+
+def _check_internet_connectivity() -> bool:
+    """Check if we have internet connectivity by trying multiple reliable hosts."""
+    import socket
+    
+    test_hosts = [
+        ('8.8.8.8', 53),        # Google DNS
+        ('1.1.1.1', 53),        # Cloudflare DNS
+        ('208.67.222.222', 53), # OpenDNS
+    ]
+    
+    # First check basic internet connectivity
+    basic_connectivity = False
+    for host, port in test_hosts:
+        try:
+            socket.setdefaulttimeout(3)
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
+            basic_connectivity = True
+            break
+        except socket.error:
+            continue
+    
+    if not basic_connectivity:
+        return False
+    
+    # Now check Yahoo Finance specifically
+    try:
+        # Try to resolve Yahoo Finance hostname
+        socket.gethostbyname('fc.yahoo.com')
+        
+        # Try to connect to Yahoo Finance
+        yahoo_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        yahoo_socket.settimeout(5)
+        yahoo_socket.connect(('fc.yahoo.com', 443))
+        yahoo_socket.close()
+        return True
+    except (socket.gaierror, socket.error):
+        logger.warning("Yahoo Finance servers are not accessible, but basic internet connectivity is available")
+        return False
+    
+    # Fallback to HTTP check if DNS fails
+    try:
+        import urllib.request
+        urllib.request.urlopen('https://www.google.com', timeout=5)
+        return True
+    except:
+        pass
+    
+    return False

@@ -200,6 +200,7 @@ python -c "
 import pandas as pd
 import numpy as np
 import json
+from pathlib import Path
 
 # Generate test dataset
 np.random.seed(42)
@@ -213,6 +214,7 @@ for i in range(10):
     data[f'target_{i}'] = np.random.randn(n_rows) * 0.05
 
 df = pd.DataFrame(data)
+Path('test_data').mkdir(exist_ok=True)
 df.to_parquet('test_data/train_production.parquet')
 "
 ```

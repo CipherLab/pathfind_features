@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main, cleanup]
+    branches: [main]
   pull_request:
-    branches: [main, cleanup]
+    branches: [main]
   workflow_dispatch:
     inputs:
       run_production_tests:

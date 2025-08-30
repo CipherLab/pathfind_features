@@ -26,11 +26,61 @@ logger = logging.getLogger(__name__)
 _TICKER_CACHE: Dict[str, pd.DataFrame] = {}
 
 
+def _check_internet_connectivity() -> bool:
+    """Check if we have internet connectivity by trying multiple reliable hosts."""
+    import socket
+    
+    test_hosts = [
+        ('8.8.8.8', 53),        # Google DNS
+        ('1.1.1.1', 53),        # Cloudflare DNS
+        ('208.67.222.222', 53), # OpenDNS
+    ]
+    
+    # First check basic internet connectivity
+    basic_connectivity = False
+    for host, port in test_hosts:
+        try:
+            socket.setdefaulttimeout(3)
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
+            basic_connectivity = True
+            break
+        except socket.error:
+            continue
+    
+    if not basic_connectivity:
+        return False
+    
+    # Now check Yahoo Finance specifically
+    try:
+        # Try to resolve Yahoo Finance hostname
+        socket.gethostbyname('fc.yahoo.com')
+        
+        # Try to connect to Yahoo Finance
+        yahoo_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        yahoo_socket.settimeout(5)
+        yahoo_socket.connect(('fc.yahoo.com', 443))
+        yahoo_socket.close()
+        return True
+    except (socket.gaierror, socket.error):
+        logger.warning("Yahoo Finance servers are not accessible, but basic internet connectivity is available")
+        return False
+    
+    # Fallback to HTTP check if DNS fails
+    try:
+        import urllib.request
+        urllib.request.urlopen('https://www.google.com', timeout=5)
+        return True
+    except:
+        pass
+    
+    return False
+
+
 def fetch_ticker_history(ticker: str, period: str = "max", interval: str = "1d",
                         cache_dir: Optional[str] = None, refresh: bool = False) -> pd.DataFrame:
     """Fetch OHLCV for a ticker using yfinance. Requires internet access.
 
-    Caches results to avoid re-downloading.
+    Caches results to avoid re-downloading. Errors if no data available from API or cache.
     """
     cache_key = f"{ticker}_{period}_{interval}"
     cache_file = None
@@ -51,14 +101,9 @@ def fetch_ticker_history(ticker: str, period: str = "max", interval: str = "1d",
         logger.info(f"Using in-memory cached data for {ticker}")
         return _TICKER_CACHE[cache_key].copy()
 
-    # Check connectivity BEFORE logging that we're fetching fresh data
-    has_internet = _check_internet_connectivity()
-    if not has_internet:
-        logger.warning(f"Yahoo Finance not accessible. Using simulation for {ticker}")
-        if ticker == '^VIX':
-            return _create_realistic_vix_simulation(period, interval)
-        else:
-            return _create_gbm_price_simulation(ticker, period, interval)
+    # Check connectivity BEFORE attempting to fetch
+    if not _check_internet_connectivity():
+        raise ValueError(f"No internet connection available. Cannot fetch data for {ticker}")
 
     logger.info(f"Fetching fresh data for {ticker} from yfinance (period={period}, interval={interval})")
     
@@ -118,14 +163,9 @@ def fetch_ticker_history(ticker: str, period: str = "max", interval: str = "1d",
             else:
                 logger.error(f"Unexpected error fetching {ticker}: {e}")
             
-            # If this is the last attempt or specific errors, fall back to simulation
-            if attempt == max_retries - 1 or "failed to connect" in error_msg:
-                if ticker == '^VIX':
-                    logger.warning(f"Falling back to realistic VIX simulation for {ticker}")
-                    return _create_realistic_vix_simulation(period, interval)
-                else:
-                    logger.info(f"Falling back to GBM simulation for {ticker}")
-                    return _create_gbm_price_simulation(ticker, period, interval)
+            # If this is the last attempt, raise the error
+            if attempt == max_retries - 1:
+                raise ValueError(f"Failed to fetch data for {ticker} after {max_retries} attempts: {e}")
     
     # This should never be reached, but just in case
     raise ValueError(f"Failed to fetch data for {ticker} after all attempts")
@@ -176,44 +216,11 @@ def build_era_ticker_features(eras: pd.Series,
     # We use the union of all dates across tickers to form a common mapping
     all_dates = []
     per_ticker = {}
-    failed_tickers = []
-    
     for t in tickers:
-        try:
-            df = fetch_ticker_history(t, period=period, interval=interval,
-                                     cache_dir=cache_dir, refresh=refresh)
-            per_ticker[t] = df
-            all_dates.append(df["date"])
-        except Exception as e:
-            logger.warning(f"Failed to fetch data for {t}: {e}")
-            failed_tickers.append(t)
-            if t == '^VIX':
-                # For VIX, we can create simulation
-                try:
-                    df = _create_realistic_vix_simulation(period, interval)
-                    per_ticker[t] = df
-                    all_dates.append(df["date"])
-                    logger.info(f"Using simulation for {t}")
-                except Exception as sim_e:
-                    logger.error(f"Failed to create simulation for {t}: {sim_e}")
-                    failed_tickers.append(t)
-            else:
-                # For non-VIX tickers, attempt GBM simulation
-                try:
-                    df = _create_gbm_price_simulation(t, period, interval)
-                    per_ticker[t] = df
-                    all_dates.append(df["date"])
-                    logger.info(f"Using GBM simulation for {t}")
-                except Exception as sim_e:
-                    logger.error(f"Failed to create GBM simulation for {t}: {sim_e}")
-                    failed_tickers.append(t)
-    
-    if not per_ticker:
-        raise ValueError(f"Failed to fetch data for any of the requested tickers: {tickers}")
-    
-    if failed_tickers:
-        logger.warning(f"Failed to fetch data for tickers: {failed_tickers}")
-        logger.info(f"Proceeding with available data for: {list(per_ticker.keys())}")
+        df = fetch_ticker_history(t, period=period, interval=interval,
+                                 cache_dir=cache_dir, refresh=refresh)
+        per_ticker[t] = df
+        all_dates.append(df["date"])
 
     all_dates = pd.concat([pd.Series(d) for d in all_dates], ignore_index=True).drop_duplicates()
     era_map = map_dates_to_eras(all_dates, mode=mapping_mode, mapping_csv=mapping_csv)
@@ -252,198 +259,3 @@ def build_era_ticker_features(eras: pd.Series,
         out = out.sort_values("era").reset_index(drop=True)
 
     return out
-
-
-def _create_realistic_vix_simulation(period: str = "max", interval: str = "1d") -> pd.DataFrame:
-    """Create realistic VIX-like data when internet is not available.
-
-    This simulates VIX behavior with:
-    - Mean around 20 (typical VIX level)
-    - Volatility clustering (high VIX periods tend to persist)
-    - Mean reversion
-    - Occasional spikes during market stress
-    """
-    import numpy as np
-
-    # Determine date range based on period
-    end_date = pd.Timestamp.now().date()
-    if period == "max":
-        start_date = pd.Timestamp('1990-01-01').date()
-    elif period.endswith('y'):
-        years = int(period[:-1])
-        start_date = (end_date - pd.DateOffset(years=years)).date()
-    elif period.endswith('mo'):
-        months = int(period[:-2])
-        start_date = (end_date - pd.DateOffset(months=months)).date()
-    else:
-        start_date = (end_date - pd.DateOffset(years=2)).date()
-
-    # Generate business days
-    date_range = pd.date_range(start=start_date, end=end_date, freq='B')
-    dates = date_range.date
-
-    np.random.seed(42)  # For reproducible results
-
-    n_days = len(dates)
-    vix_values = np.zeros(n_days)
-
-    # Start with typical VIX level
-    vix_values[0] = 18.0
-
-    # Parameters for realistic VIX simulation
-    mean_reversion_speed = 0.05  # Slower mean reversion
-    long_term_mean = 20.0
-    volatility_of_volatility = 0.4  # Higher volatility
-    jump_probability = 0.03  # More frequent jumps
-
-    for i in range(1, n_days):
-        # Mean reversion
-        drift = mean_reversion_speed * (long_term_mean - vix_values[i-1])
-
-        # Volatility clustering (GARCH-like)
-        vol = 0.05 + 0.1 * abs(vix_values[i-1] - long_term_mean) / long_term_mean
-
-        # Random shock
-        shock = np.random.normal(0, vol)
-
-        # Occasional jumps (market stress events)
-        if np.random.random() < jump_probability:
-            jump = np.random.exponential(15)  # Larger positive jump
-            vix_values[i] = vix_values[i-1] + drift + shock + jump
-        else:
-            vix_values[i] = vix_values[i-1] + drift + shock
-
-        # Ensure VIX stays positive and reasonable
-        vix_values[i] = max(5.0, min(80.0, vix_values[i]))
-
-    # Create OHLCV data
-    close_prices = vix_values
-
-    # Generate OHLC from close prices with some spread
-    high_prices = close_prices * (1 + np.random.exponential(0.02, n_days))
-    low_prices = close_prices * (1 - np.random.exponential(0.02, n_days))
-    open_prices = close_prices + np.random.normal(0, 0.5, n_days)
-    volumes = np.random.lognormal(15, 1, n_days)  # Typical volume
-
-    # Create DataFrame
-    df = pd.DataFrame({
-        'date': dates,
-        'Open': open_prices,
-        'High': high_prices,
-        'Low': low_prices,
-        'Close': close_prices,
-        'Volume': volumes
-    })
-
-    logger.info(f"Created realistic VIX simulation: {len(df)} rows, "
-                f"Close range: {df['Close'].min():.1f} - {df['Close'].max():.1f}, "
-                f"Mean: {df['Close'].mean():.1f}")
-
-    return df
-
-
-def _create_gbm_price_simulation(ticker: str, period: str = "max", interval: str = "1d") -> pd.DataFrame:
-    """Create a simple GBM-like OHLCV simulation for equity/ETF tickers when offline.
-
-    - Drift ~ 6% annualized, volatility ~ 20%
-    - Business-day frequency
-    - Generates Open/High/Low/Close/Volume columns
-    """
-    # Determine date range based on period
-    end_date = pd.Timestamp.now().date()
-    if period == "max":
-        start_date = pd.Timestamp('2000-01-01').date()
-    elif period.endswith('y'):
-        years = int(period[:-1])
-        start_date = (end_date - pd.DateOffset(years=years)).date()
-    elif period.endswith('mo'):
-        months = int(period[:-2])
-        start_date = (end_date - pd.DateOffset(months=months)).date()
-    else:
-        start_date = (end_date - pd.DateOffset(years=5)).date()
-
-    # Generate business days
-    dates = pd.date_range(start=start_date, end=end_date, freq='B').date
-    n = len(dates)
-    if n == 0:
-        raise ValueError("No dates generated for simulation")
-
-    # GBM parameters
-    mu = 0.06  # annual drift
-    sigma = 0.20  # annual vol
-    dt = 1/252
-
-    # Start price based on common sense
-    start_price = 100.0 if ticker != 'SPY' else 300.0
-
-    rng = np.random.default_rng(42)
-    shocks = rng.normal((mu - 0.5 * sigma**2) * dt, sigma * np.sqrt(dt), size=n)
-    log_prices = np.cumsum(shocks) + np.log(start_price)
-    close = np.exp(log_prices)
-
-    # Make OHLC around close
-    open_ = close * (1 + rng.normal(0, 0.002, size=n))
-    high = np.maximum(open_, close) * (1 + rng.random(n) * 0.01)
-    low = np.minimum(open_, close) * (1 - rng.random(n) * 0.01)
-    volume = rng.lognormal(mean=15, sigma=1.0, size=n)
-
-    df = pd.DataFrame({
-        'date': dates,
-        'Open': open_,
-        'High': high,
-        'Low': low,
-        'Close': close,
-        'Volume': volume
-    })
-    logger.info(f"Created GBM simulation for {ticker}: {len(df)} rows, last close {df['Close'].iloc[-1]:.2f}")
-    return df
-
-
-def _check_internet_connectivity() -> bool:
-    """Check if we have internet connectivity by trying multiple reliable hosts."""
-    import socket
-    
-    test_hosts = [
-        ('8.8.8.8', 53),        # Google DNS
-        ('1.1.1.1', 53),        # Cloudflare DNS
-        ('208.67.222.222', 53), # OpenDNS
-    ]
-    
-    # First check basic internet connectivity
-    basic_connectivity = False
-    for host, port in test_hosts:
-        try:
-            socket.setdefaulttimeout(3)
-            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
-            basic_connectivity = True
-            break
-        except socket.error:
-            continue
-    
-    if not basic_connectivity:
-        return False
-    
-    # Now check Yahoo Finance specifically
-    try:
-        # Try to resolve Yahoo Finance hostname
-        socket.gethostbyname('fc.yahoo.com')
-        
-        # Try to connect to Yahoo Finance
-        yahoo_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        yahoo_socket.settimeout(5)
-        yahoo_socket.connect(('fc.yahoo.com', 443))
-        yahoo_socket.close()
-        return True
-    except (socket.gaierror, socket.error):
-        logger.warning("Yahoo Finance servers are not accessible, but basic internet connectivity is available")
-        return False
-    
-    # Fallback to HTTP check if DNS fails
-    try:
-        import urllib.request
-        urllib.request.urlopen('https://www.google.com', timeout=5)
-        return True
-    except:
-        pass
-    
-    return False

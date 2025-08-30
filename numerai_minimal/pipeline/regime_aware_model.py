@@ -284,12 +284,14 @@ def run_regime_aware_training(data_file: str, features_file: str,
             df = df.merge(vix_df[['era', 'vix']], on='era', how='left')
         elif market_tickers:
             try:
-                import market_data
-                build_era_ticker_features = market_data.build_era_ticker_features
+                from .market_data import build_era_ticker_features
             except ImportError:
-                # Fallback if import fails
-                logger.warning("Could not import market_data module")
-                raise
+                try:
+                    from market_data import build_era_ticker_features
+                except ImportError:
+                    # Fallback if import fails
+                    logger.warning("Could not import market_data module")
+                    raise
             try:
                 md = build_era_ticker_features(df['era'], market_tickers, agg=market_agg,
                                               mapping_mode='ordinal', mapping_csv=market_mapping_csv,

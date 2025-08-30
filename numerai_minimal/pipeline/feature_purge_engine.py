@@ -328,7 +328,7 @@ def run_feature_purge(data_file: str, features_file: str, output_dir: str,
     pf = pq.ParquetFile(data_file)
     df = pf.read().to_pandas()
 
-    # Ensure VIX exists so regime split works (simulate or fetch if tickers provided)
+    # Ensure VIX exists so regime split works
     if 'vix' not in df.columns:
         if market_tickers:
             try:
@@ -354,9 +354,9 @@ def run_feature_purge(data_file: str, features_file: str, output_dir: str,
                 df = df.merge(tmp, on='era', how='left')
                 # Backfill missing
                 df['vix'] = df['vix'].fillna(df['vix'].median())
-            except Exception:
-                np.random.seed(42)
-                df['vix'] = np.random.normal(20, 7, len(df)).clip(10, 60)
+            except Exception as e:
+                logger.error(f"Failed to fetch market data for purge engine: {e}")
+                raise ValueError("Market data fetch failed for feature purge with provided tickers; cannot simulate")
         else:
             np.random.seed(42)
             df['vix'] = np.random.normal(20, 7, len(df)).clip(10, 60)

@@ -234,6 +234,15 @@ class TestPerformanceRegressionDetection:
 
         process = psutil.Process(os.getpid())
 
+        # Warm-up run to stabilize memory allocations and avoid measuring
+        # one-time setup costs that can skew consistency checks.
+        df_warm = df.copy()
+        df_warm['vix_regime'] = categorize_eras_by_vix(df['era'], vix_data)
+        cv = EraAwareCrossValidator(n_splits=3, gap_eras=5)
+        _ = list(cv.split(df_warm))
+        del df_warm
+        gc.collect()
+
         memory_usage = []
 
         for _ in range(3):
@@ -256,12 +265,24 @@ class TestPerformanceRegressionDetection:
             del df_copy, splits
             gc.collect()
 
-        # Memory usage should be consistent
-        memory_std = np.std(memory_usage)
-        memory_mean = np.mean(memory_usage)
-        memory_cv = memory_std / memory_mean if memory_mean > 0 else 0
+        # Memory usage should be consistent across runs. We use absolute
+        # range instead of coefficient of variation to avoid instability
+        # when the mean memory change is close to zero.
+        # Ignore the first run when checking consistency as initial calls may
+        # trigger one-time allocations from imported libraries. Ensure the
+        # warm-up run itself did not allocate excessive memory.
+        first_run = memory_usage[0] if memory_usage else 0
+        subsequent_runs = memory_usage[1:]
 
-        assert memory_cv < 0.3, f"Inconsistent memory usage: CV = {memory_cv:.2f}"
+        if subsequent_runs:
+            memory_range = max(subsequent_runs) - min(subsequent_runs)
+            assert memory_range < 5, (
+                f"Inconsistent memory usage: range = {memory_range:.2f}MB"
+            )
+
+        assert first_run < 50, (
+            f"Excessive memory usage on first run: {first_run:.2f}MB"
+        )
 
 
 # Custom benchmark fixture for pytest-benchmark

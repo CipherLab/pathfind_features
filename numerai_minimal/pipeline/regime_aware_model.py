@@ -251,7 +251,11 @@ class RegimeAwareModelTrainer:
 
 def run_regime_aware_training(data_file: str, features_file: str,
                              output_dir: str, vix_file: str | None = None,
-                             target_col: str = 'adaptive_target') -> Dict:
+                             target_col: str = 'adaptive_target',
+                             market_tickers: Optional[List[str]] = None,
+                             market_agg: str = 'ret',
+                             market_mapping_csv: Optional[str] = None,
+                             refresh_market: bool = False) -> Dict:
     """Run the complete regime-aware model training pipeline."""
 
     # Setup logging
@@ -278,6 +282,35 @@ def run_regime_aware_training(data_file: str, features_file: str,
         if vix_file and os.path.exists(vix_file):
             vix_df = pd.read_csv(vix_file)
             df = df.merge(vix_df[['era', 'vix']], on='era', how='left')
+        elif market_tickers:
+            try:
+                from .market_data import build_era_ticker_features
+            except Exception:
+                from market_data import build_era_ticker_features
+            try:
+                md = build_era_ticker_features(df['era'], market_tickers, agg=market_agg,
+                                              mapping_mode='ordinal', mapping_csv=market_mapping_csv,
+                                              cache_dir=os.path.join(output_dir, 'market_cache'),
+                                              refresh=refresh_market)
+                # Prefer ^VIX_close if ^VIX present, else ensemble of returns as proxy
+                vix_cols = [c for c in md.columns if c.lower().startswith('^vix')]
+                if vix_cols:
+                    col = vix_cols[0]
+                    tmp = md[['era', col]].rename(columns={col: 'vix'})
+                elif 'ensemble_ret' in md.columns:
+                    tmp = md[['era', 'ensemble_ret']].rename(columns={'ensemble_ret': 'vix'})
+                else:
+                    # pick first numeric column as proxy
+                    num_cols = [c for c in md.columns if c != 'era']
+                    tmp = md[['era', num_cols[0]]].rename(columns={num_cols[0]: 'vix'})
+                df = df.merge(tmp, on='era', how='left')
+                # Backfill missing
+                df['vix'] = df['vix'].fillna(df['vix'].median())
+            except Exception as e:
+                logger.warning(f"Failed to fetch market data: {e}")
+                # Simulate VIX based on era for demo purposes
+                np.random.seed(42)
+                df['vix'] = np.random.normal(20, 5, len(df))
         else:
             logger.warning("No VIX data available, using simulated regime classification")
             # Simulate VIX based on era for demo purposes

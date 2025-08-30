@@ -305,7 +305,8 @@ def run_feature_purge(data_file: str, features_file: str, output_dir: str,
                      sample_size: int = 5000,
                      market_tickers: Optional[List[str]] = None,
                      market_agg: str = 'ret',
-                     market_mapping_csv: Optional[str] = None) -> Dict:
+                     market_mapping_csv: Optional[str] = None,
+                     refresh_market: bool = False) -> Dict:
     """Run the complete feature purge pipeline."""
 
     # Setup logging
@@ -336,7 +337,9 @@ def run_feature_purge(data_file: str, features_file: str, output_dir: str,
                 from market_data import build_era_ticker_features
             try:
                 md = build_era_ticker_features(df['era'], market_tickers, agg=market_agg,
-                                              mapping_mode='ordinal', mapping_csv=market_mapping_csv)
+                                              mapping_mode='ordinal', mapping_csv=market_mapping_csv,
+                                              cache_dir=os.path.join(output_dir, 'market_cache'),
+                                              refresh=refresh_market)
                 # Prefer ^VIX_close if ^VIX present, else ensemble of returns as proxy
                 vix_cols = [c for c in md.columns if c.lower().startswith('^vix')]
                 if vix_cols:
